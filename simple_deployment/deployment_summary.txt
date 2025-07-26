@@ -1,0 +1,11 @@
+Deployment Package Summary
+=========================
+
+Package: YOLOv4 Crowd Detection
+Created: 2025-07-26T12:16:19.076874
+Source weights: data/yolov4.weights
+
+To use this package:
+1. cd ./simple_deployment
+2. pip install -r requirements.txt
+3. python scripts/object_tracker.py --video your_video.mp4

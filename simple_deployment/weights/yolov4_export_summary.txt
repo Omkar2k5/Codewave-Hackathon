@@ -1,0 +1,15 @@
+Weights Export Summary
+====================
+
+Model: yolov4
+Source: data/yolov4.weights
+Export Date: 2025-07-26T12:16:19.023398
+Darknet Version: 0.2.5
+Images Seen: 32,032,000
+Total Parameters: 64,429,405
+Weight Range: [-52.330612, 3294.223877]
+
+Exported Files:
+  - yolov4_weights.npy (257,717,748 bytes)
+  - yolov4_metadata.json (259 bytes)
+  - yolov4_weight_loader.py (1,199 bytes)
