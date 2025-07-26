@@ -35,7 +35,7 @@ class AdvancedCrowdDetector:
         
         # Group tracking and merging
         self.group_rectangles = {}  # Store merged rectangles for groups
-        self.proximity_threshold = 50  # Distance threshold for merging rectangles
+        self.proximity_threshold = 80  # More aggressive distance threshold for merging rectangles
         self.movement_trails = defaultdict(lambda: deque(maxlen=30))  # Track movement for 30 frames
 
         # Statistics tracking
@@ -187,7 +187,7 @@ class AdvancedCrowdDetector:
         return list(self.tracks.items())
     
     def merge_nearby_rectangles(self, tracks):
-        """Merge rectangles of people who are close to each other"""
+        """Merge ALL overlapping and nearby rectangles into unified groups"""
         if len(tracks) == 0:
             return []
 
@@ -199,62 +199,99 @@ class AdvancedCrowdDetector:
             boxes.append([x, y, x + w, y + h])  # Convert to [x1, y1, x2, y2]
             track_info.append((track_id, track))
 
-        # Group nearby rectangles
+        # Use Union-Find (Disjoint Set) algorithm for proper grouping
+        parent = list(range(len(boxes)))
+
+        def find(x):
+            if parent[x] != x:
+                parent[x] = find(parent[x])
+            return parent[x]
+
+        def union(x, y):
+            px, py = find(x), find(y)
+            if px != py:
+                parent[px] = py
+
+        # Find all pairs that should be merged
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                if self.should_merge_boxes(boxes[i], boxes[j]):
+                    union(i, j)
+
+        # Group boxes by their root parent
+        groups_dict = {}
+        for i in range(len(boxes)):
+            root = find(i)
+            if root not in groups_dict:
+                groups_dict[root] = []
+            groups_dict[root].append(i)
+
+        # Create final groups with merged bounding boxes
         groups = []
-        used = set()
+        for group_indices in groups_dict.values():
+            # Calculate unified bounding box for this group
+            min_x1 = min(boxes[i][0] for i in group_indices)
+            min_y1 = min(boxes[i][1] for i in group_indices)
+            max_x2 = max(boxes[i][2] for i in group_indices)
+            max_y2 = max(boxes[i][3] for i in group_indices)
 
-        for i, (box1, (track_id1, track1)) in enumerate(zip(boxes, track_info)):
-            if i in used:
-                continue
-
-            # Start a new group with current box
-            current_group = [i]
-            group_box = box1.copy()
-
-            # Find all boxes that should be merged with this one
-            for j, (box2, (track_id2, track2)) in enumerate(zip(boxes, track_info)):
-                if j == i or j in used:
-                    continue
-
-                # Check if boxes are close enough to merge
-                if self.should_merge_boxes(group_box, box2):
-                    current_group.append(j)
-                    # Expand group box to include new box
-                    group_box[0] = min(group_box[0], box2[0])  # min x1
-                    group_box[1] = min(group_box[1], box2[1])  # min y1
-                    group_box[2] = max(group_box[2], box2[2])  # max x2
-                    group_box[3] = max(group_box[3], box2[3])  # max y2
-
-            # Mark all boxes in this group as used
-            for idx in current_group:
-                used.add(idx)
+            # Add some padding to ensure complete coverage
+            padding = 10
+            min_x1 = max(0, min_x1 - padding)
+            min_y1 = max(0, min_y1 - padding)
+            max_x2 = max_x2 + padding
+            max_y2 = max_y2 + padding
 
             # Create group info
-            group_tracks = [track_info[idx] for idx in current_group]
+            group_tracks = [track_info[idx] for idx in group_indices]
             groups.append({
-                'bbox': [group_box[0], group_box[1], group_box[2] - group_box[0], group_box[3] - group_box[1]],  # Convert back to [x, y, w, h]
+                'bbox': [min_x1, min_y1, max_x2 - min_x1, max_y2 - min_y1],  # [x, y, w, h]
                 'tracks': group_tracks,
                 'count': len(group_tracks),
-                'is_group': len(group_tracks) > 1
+                'is_group': len(group_tracks) > 1,
+                'individual_boxes': [boxes[i] for i in group_indices]  # Store original boxes for reference
             })
 
         return groups
 
     def should_merge_boxes(self, box1, box2):
-        """Check if two boxes should be merged based on proximity"""
+        """Check if two boxes should be merged - more aggressive overlap detection"""
+        x1_1, y1_1, x2_1, y2_1 = box1
+        x1_2, y1_2, x2_2, y2_2 = box2
+
+        # Check for any overlap (including touching edges)
+        overlap = not (x2_1 < x1_2 or x2_2 < x1_1 or y2_1 < y1_2 or y2_2 < y1_1)
+
+        if overlap:
+            return True
+
         # Calculate centers
-        center1_x = (box1[0] + box1[2]) / 2
-        center1_y = (box1[1] + box1[3]) / 2
-        center2_x = (box2[0] + box2[2]) / 2
-        center2_y = (box2[1] + box2[3]) / 2
+        center1_x = (x1_1 + x2_1) / 2
+        center1_y = (y1_1 + y2_1) / 2
+        center2_x = (x1_2 + x2_2) / 2
+        center2_y = (y1_2 + y2_2) / 2
 
         # Calculate distance between centers
         distance = math.sqrt((center1_x - center2_x)**2 + (center1_y - center2_y)**2)
 
-        # Check if boxes overlap or are within proximity threshold
-        overlap = not (box1[2] < box2[0] or box2[2] < box1[0] or box1[3] < box2[1] or box2[3] < box1[1])
+        # More aggressive proximity threshold
+        return distance <= self.proximity_threshold
 
-        return overlap or distance <= self.proximity_threshold
+    def calculate_overlap_area(self, box1, box2):
+        """Calculate the area of overlap between two boxes"""
+        x1_1, y1_1, x2_1, y2_1 = box1
+        x1_2, y1_2, x2_2, y2_2 = box2
+
+        # Calculate intersection
+        x1_i = max(x1_1, x1_2)
+        y1_i = max(y1_1, y1_2)
+        x2_i = min(x2_1, x2_2)
+        y2_i = min(y2_1, y2_2)
+
+        if x2_i <= x1_i or y2_i <= y1_i:
+            return 0  # No overlap
+
+        return (x2_i - x1_i) * (y2_i - y1_i)
     
     def analyze_zones(self, groups, frame_shape):
         """Analyze different zones and classify density levels based on people count"""
@@ -310,52 +347,69 @@ class AdvancedCrowdDetector:
         return zones
     
     def draw_merged_groups(self, frame, groups):
-        """Draw merged group rectangles instead of individual bounding boxes"""
-        for group in groups:
+        """Draw ONLY merged group rectangles - no overlapping boxes"""
+        for group_idx, group in enumerate(groups):
             x, y, w, h = group['bbox']
             count = group['count']
             is_group = group['is_group']
 
-            # Choose color based on group size
+            # Choose color based on group size with better distinction
             if is_group:
-                if count <= 3:
-                    color = (0, 255, 255)  # Yellow for small groups
-                elif count <= 6:
-                    color = (0, 165, 255)  # Orange for medium groups
+                if count == 2:
+                    color = (0, 255, 255)  # Cyan for pairs
+                elif count <= 4:
+                    color = (0, 165, 255)  # Orange for small groups
+                elif count <= 8:
+                    color = (0, 100, 255)  # Dark orange for medium groups
                 else:
                     color = (0, 0, 255)  # Red for large groups
-                thickness = 3
-                label = f"Group: {count} people"
+                thickness = 4
+                label = f"GROUP-{group_idx+1}: {count} people"
             else:
                 color = (0, 255, 0)  # Green for individuals
                 thickness = 2
                 track_id, track = group['tracks'][0]
                 method = track['method']
-                label = f"ID:{track_id} ({method})"
+                label = f"PERSON-{track_id} ({method})"
 
-            # Draw bounding box
+            # Draw SINGLE unified bounding box for the entire group
             cv2.rectangle(frame, (x, y), (x + w, y + h), color, thickness)
 
-            # Draw label
-            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-            cv2.rectangle(frame, (x, y - label_size[1] - 10),
-                         (x + label_size[0] + 10, y), color, -1)
-            cv2.putText(frame, label, (x + 5, y - 5),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            # Draw label with background
+            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+            cv2.rectangle(frame, (x, y - label_size[1] - 15),
+                         (x + label_size[0] + 15, y), color, -1)
+            cv2.putText(frame, label, (x + 7, y - 7),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-            # Draw center point
+            # Draw group center point
             center_x = x + w // 2
             center_y = y + h // 2
-            cv2.circle(frame, (center_x, center_y), 5, color, -1)
+            cv2.circle(frame, (center_x, center_y), 8, color, -1)
+            cv2.circle(frame, (center_x, center_y), 8, (255, 255, 255), 2)
 
-            # For groups, show individual detection points
+            # For groups, show individual detection points INSIDE the unified box
             if is_group:
-                for track_id, track in group['tracks']:
+                for i, (track_id, track) in enumerate(group['tracks']):
                     track_center = track['center']
-                    cv2.circle(frame, tuple(map(int, track_center)), 3, (255, 255, 255), -1)
+                    # Use different colors for individual points within group
+                    point_color = (255, 255, 255)  # White for visibility
+                    cv2.circle(frame, tuple(map(int, track_center)), 4, point_color, -1)
+                    cv2.circle(frame, tuple(map(int, track_center)), 4, (0, 0, 0), 1)
+
+                    # Small ID label for each person in group
                     cv2.putText(frame, str(track_id),
-                               (int(track_center[0]) - 10, int(track_center[1]) - 10),
+                               (int(track_center[0]) - 8, int(track_center[1]) - 8),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 0), 2)
+                    cv2.putText(frame, str(track_id),
+                               (int(track_center[0]) - 8, int(track_center[1]) - 8),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+
+            # Add count indicator in corner
+            count_text = str(count)
+            cv2.circle(frame, (x + w - 15, y + 15), 12, color, -1)
+            cv2.putText(frame, count_text, (x + w - 20, y + 20),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
     
     def draw_zone_labels(self, frame, zones):
         """Draw zone status labels"""
