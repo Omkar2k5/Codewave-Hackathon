@@ -33,17 +33,17 @@ class AdvancedCrowdDetector:
         self.max_disappeared = 15
         self.max_distance = 80
         
-        # Heatmap and temporal data
-        self.heatmap_history = deque(maxlen=150)  # Store last 150 frames for heatmap
-        self.density_zones = {}
+        # Group tracking and merging
+        self.group_rectangles = {}  # Store merged rectangles for groups
+        self.proximity_threshold = 50  # Distance threshold for merging rectangles
         self.movement_trails = defaultdict(lambda: deque(maxlen=30))  # Track movement for 30 frames
-        
+
         # Statistics tracking
         self.frame_stats = deque(maxlen=100)
         self.zone_history = deque(maxlen=50)
         
         print("✅ Advanced Crowd Detection System initialized!")
-        print("📊 Features: Heatmaps | Zone Analysis | Movement Tracking | Real-time Stats")
+        print("📊 Features: Group Merging | Zone Analysis | Movement Tracking | Real-time Stats")
     
     def detect_people_enhanced(self, frame):
         """Enhanced people detection with multiple methods"""
@@ -186,94 +186,176 @@ class AdvancedCrowdDetector:
         
         return list(self.tracks.items())
     
-    def update_heatmap(self, tracks, frame_shape):
-        """Update density heatmap based on current detections"""
-        height, width = frame_shape[:2]
-        heatmap = np.zeros((height, width), dtype=np.float32)
-        
-        # Add current detections to heatmap
+    def merge_nearby_rectangles(self, tracks):
+        """Merge rectangles of people who are close to each other"""
+        if len(tracks) == 0:
+            return []
+
+        # Extract bounding boxes and track info
+        boxes = []
+        track_info = []
         for track_id, track in tracks:
-            center = track['center']
-            x, y = int(center[0]), int(center[1])
-            
-            # Create gaussian blob around detection
-            for dy in range(-30, 31):
-                for dx in range(-30, 31):
-                    nx, ny = x + dx, y + dy
-                    if 0 <= nx < width and 0 <= ny < height:
-                        distance = math.sqrt(dx*dx + dy*dy)
-                        if distance <= 30:
-                            intensity = math.exp(-(distance**2) / (2 * 15**2))
-                            heatmap[ny, nx] += intensity
-        
-        self.heatmap_history.append(heatmap)
-        
-        # Create accumulated heatmap
-        if len(self.heatmap_history) > 0:
-            accumulated = np.sum(self.heatmap_history, axis=0)
-            # Normalize
-            if accumulated.max() > 0:
-                accumulated = accumulated / accumulated.max()
-            return accumulated
-        
-        return heatmap
+            x, y, w, h = track['bbox']
+            boxes.append([x, y, x + w, y + h])  # Convert to [x1, y1, x2, y2]
+            track_info.append((track_id, track))
+
+        # Group nearby rectangles
+        groups = []
+        used = set()
+
+        for i, (box1, (track_id1, track1)) in enumerate(zip(boxes, track_info)):
+            if i in used:
+                continue
+
+            # Start a new group with current box
+            current_group = [i]
+            group_box = box1.copy()
+
+            # Find all boxes that should be merged with this one
+            for j, (box2, (track_id2, track2)) in enumerate(zip(boxes, track_info)):
+                if j == i or j in used:
+                    continue
+
+                # Check if boxes are close enough to merge
+                if self.should_merge_boxes(group_box, box2):
+                    current_group.append(j)
+                    # Expand group box to include new box
+                    group_box[0] = min(group_box[0], box2[0])  # min x1
+                    group_box[1] = min(group_box[1], box2[1])  # min y1
+                    group_box[2] = max(group_box[2], box2[2])  # max x2
+                    group_box[3] = max(group_box[3], box2[3])  # max y2
+
+            # Mark all boxes in this group as used
+            for idx in current_group:
+                used.add(idx)
+
+            # Create group info
+            group_tracks = [track_info[idx] for idx in current_group]
+            groups.append({
+                'bbox': [group_box[0], group_box[1], group_box[2] - group_box[0], group_box[3] - group_box[1]],  # Convert back to [x, y, w, h]
+                'tracks': group_tracks,
+                'count': len(group_tracks),
+                'is_group': len(group_tracks) > 1
+            })
+
+        return groups
+
+    def should_merge_boxes(self, box1, box2):
+        """Check if two boxes should be merged based on proximity"""
+        # Calculate centers
+        center1_x = (box1[0] + box1[2]) / 2
+        center1_y = (box1[1] + box1[3]) / 2
+        center2_x = (box2[0] + box2[2]) / 2
+        center2_y = (box2[1] + box2[3]) / 2
+
+        # Calculate distance between centers
+        distance = math.sqrt((center1_x - center2_x)**2 + (center1_y - center2_y)**2)
+
+        # Check if boxes overlap or are within proximity threshold
+        overlap = not (box1[2] < box2[0] or box2[2] < box1[0] or box1[3] < box2[1] or box2[3] < box1[1])
+
+        return overlap or distance <= self.proximity_threshold
     
-    def analyze_zones(self, heatmap, frame_shape):
-        """Analyze different zones and classify density levels"""
+    def analyze_zones(self, groups, frame_shape):
+        """Analyze different zones and classify density levels based on people count"""
         height, width = frame_shape[:2]
         zones = {}
-        
+
         # Define zones (divide frame into 3x3 grid)
         zone_height = height // 3
         zone_width = width // 3
-        
+
         zone_labels = [
             ['Top-Left', 'Top-Center', 'Top-Right'],
             ['Mid-Left', 'Center', 'Mid-Right'],
             ['Bottom-Left', 'Bottom-Center', 'Bottom-Right']
         ]
-        
+
         for i in range(3):
             for j in range(3):
                 y1 = i * zone_height
                 y2 = (i + 1) * zone_height if i < 2 else height
                 x1 = j * zone_width
                 x2 = (j + 1) * zone_width if j < 2 else width
-                
-                zone_heatmap = heatmap[y1:y2, x1:x2]
-                density = np.mean(zone_heatmap)
-                
-                # Classify density
-                if density < 0.1:
+
+                # Count people in this zone
+                people_in_zone = 0
+                for group in groups:
+                    group_x, group_y, group_w, group_h = group['bbox']
+                    group_center_x = group_x + group_w // 2
+                    group_center_y = group_y + group_h // 2
+
+                    # Check if group center is in this zone
+                    if x1 <= group_center_x < x2 and y1 <= group_center_y < y2:
+                        people_in_zone += group['count']
+
+                # Classify density based on people count
+                if people_in_zone == 0:
                     status = "Clear"
                     color = (0, 255, 0)  # Green
-                elif density < 0.3:
+                elif people_in_zone <= 3:
                     status = "Normal"
                     color = (0, 255, 255)  # Yellow
                 else:
                     status = "Congested"
                     color = (0, 0, 255)  # Red
-                
+
                 zones[zone_labels[i][j]] = {
-                    'density': density,
+                    'people_count': people_in_zone,
                     'status': status,
                     'color': color,
                     'bounds': (x1, y1, x2, y2)
                 }
-        
+
         return zones
     
-    def draw_heatmap_overlay(self, frame, heatmap):
-        """Draw heatmap overlay on frame"""
-        if heatmap.max() > 0:
-            # Convert heatmap to color
-            heatmap_normalized = (heatmap * 255).astype(np.uint8)
-            heatmap_colored = cv2.applyColorMap(heatmap_normalized, cv2.COLORMAP_JET)
-            
-            # Create overlay
-            overlay = cv2.addWeighted(frame, 0.7, heatmap_colored, 0.3, 0)
-            return overlay
-        return frame
+    def draw_merged_groups(self, frame, groups):
+        """Draw merged group rectangles instead of individual bounding boxes"""
+        for group in groups:
+            x, y, w, h = group['bbox']
+            count = group['count']
+            is_group = group['is_group']
+
+            # Choose color based on group size
+            if is_group:
+                if count <= 3:
+                    color = (0, 255, 255)  # Yellow for small groups
+                elif count <= 6:
+                    color = (0, 165, 255)  # Orange for medium groups
+                else:
+                    color = (0, 0, 255)  # Red for large groups
+                thickness = 3
+                label = f"Group: {count} people"
+            else:
+                color = (0, 255, 0)  # Green for individuals
+                thickness = 2
+                track_id, track = group['tracks'][0]
+                method = track['method']
+                label = f"ID:{track_id} ({method})"
+
+            # Draw bounding box
+            cv2.rectangle(frame, (x, y), (x + w, y + h), color, thickness)
+
+            # Draw label
+            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+            cv2.rectangle(frame, (x, y - label_size[1] - 10),
+                         (x + label_size[0] + 10, y), color, -1)
+            cv2.putText(frame, label, (x + 5, y - 5),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+            # Draw center point
+            center_x = x + w // 2
+            center_y = y + h // 2
+            cv2.circle(frame, (center_x, center_y), 5, color, -1)
+
+            # For groups, show individual detection points
+            if is_group:
+                for track_id, track in group['tracks']:
+                    track_center = track['center']
+                    cv2.circle(frame, tuple(map(int, track_center)), 3, (255, 255, 255), -1)
+                    cv2.putText(frame, str(track_id),
+                               (int(track_center[0]) - 10, int(track_center[1]) - 10),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
     
     def draw_zone_labels(self, frame, zones):
         """Draw zone status labels"""
@@ -288,83 +370,57 @@ class AdvancedCrowdDetector:
             # Draw zone boundary
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
             
-            # Draw status label
-            label = f"{zone_name}: {status}"
+            # Draw status label with people count
+            label = f"{zone_name}: {status} ({zone_data['people_count']})"
             label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)[0]
-            
+
             # Background for text
-            cv2.rectangle(frame, 
+            cv2.rectangle(frame,
                          (center_x - label_size[0]//2 - 5, center_y - 10),
                          (center_x + label_size[0]//2 + 5, center_y + 5),
                          (0, 0, 0), -1)
-            
+
             # Text
             cv2.putText(frame, label,
                        (center_x - label_size[0]//2, center_y),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
     
-    def draw_movement_trails(self, frame, tracks):
+    def draw_movement_trails(self, frame, groups):
         """Draw movement trails for tracked objects"""
-        for track_id, track in tracks:
-            if track_id in self.movement_trails:
-                trail = list(self.movement_trails[track_id])
-                if len(trail) > 1:
-                    # Draw trail with fading effect
-                    for i in range(1, len(trail)):
-                        alpha = i / len(trail)
-                        thickness = max(1, int(3 * alpha))
-                        
-                        # Color based on track age
-                        hue = (track_id * 137.5) % 360  # Golden ratio for color distribution
-                        rgb = colorsys.hsv_to_rgb(hue/360, 0.8, 0.9)
-                        color = tuple(int(c * 255) for c in rgb)
-                        
-                        cv2.line(frame, tuple(map(int, trail[i-1])), tuple(map(int, trail[i])), 
-                                color, thickness)
+        for group in groups:
+            for track_id, track in group['tracks']:
+                if track_id in self.movement_trails:
+                    trail = list(self.movement_trails[track_id])
+                    if len(trail) > 1:
+                        # Draw trail with fading effect
+                        for i in range(1, len(trail)):
+                            alpha = i / len(trail)
+                            thickness = max(1, int(3 * alpha))
+
+                            # Color based on track age
+                            hue = (track_id * 137.5) % 360  # Golden ratio for color distribution
+                            rgb = colorsys.hsv_to_rgb(hue/360, 0.8, 0.9)
+                            color = tuple(int(c * 255) for c in rgb)
+
+                            cv2.line(frame, tuple(map(int, trail[i-1])), tuple(map(int, trail[i])),
+                                    color, thickness)
     
-    def draw_detections_and_tracking(self, frame, tracks):
-        """Draw bounding boxes and tracking information"""
-        for track_id, track in tracks:
-            x, y, w, h = track['bbox']
-            center = track['center']
-            method = track['method']
-            confidence = track['confidence']
-            age = track['age']
-            
-            # Color based on method
-            if method == 'HOG':
-                color = (0, 255, 0)  # Green
-            else:
-                color = (255, 0, 0)  # Blue
-            
-            # Draw bounding box
-            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-            
-            # Draw center point
-            cv2.circle(frame, tuple(map(int, center)), 4, color, -1)
-            
-            # Draw ID and info
-            label = f"ID:{track_id} ({method})"
-            cv2.putText(frame, label, (x, y - 10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-            
-            # Draw confidence and age
-            info = f"C:{confidence:.2f} A:{age}"
-            cv2.putText(frame, info, (x, y + h + 15), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+
     
-    def draw_statistics_panel(self, frame, tracks, zones, frame_count, total_frames):
+    def draw_statistics_panel(self, frame, groups, zones, frame_count, total_frames):
         """Draw comprehensive statistics panel"""
         height, width = frame.shape[:2]
         panel_height = 120
-        
+
         # Create semi-transparent panel
         overlay = frame.copy()
         cv2.rectangle(overlay, (0, 0), (width, panel_height), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.8, frame, 0.2, 0, frame)
-        
+
         # Current statistics
-        total_people = len(tracks)
+        total_people = sum(group['count'] for group in groups)
+        total_groups = len([g for g in groups if g['is_group']])
+        individual_people = len([g for g in groups if not g['is_group']])
         congested_zones = len([z for z in zones.values() if z['status'] == 'Congested'])
         normal_zones = len([z for z in zones.values() if z['status'] == 'Normal'])
         clear_zones = len([z for z in zones.values() if z['status'] == 'Clear'])
@@ -372,6 +428,8 @@ class AdvancedCrowdDetector:
         # Update frame stats
         self.frame_stats.append({
             'people': total_people,
+            'groups': total_groups,
+            'individuals': individual_people,
             'congested': congested_zones,
             'normal': normal_zones,
             'clear': clear_zones
@@ -389,16 +447,16 @@ class AdvancedCrowdDetector:
         y_offset = 20
         
         # Title
-        cv2.putText(frame, "ADVANCED CROWD DETECTION SYSTEM", 
-                   (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
+        cv2.putText(frame, "ADVANCED CROWD DETECTION - GROUP MERGING",
+                   (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
         # Current stats
         y_offset += 25
-        cv2.putText(frame, f"People Detected: {total_people} | Avg: {avg_people:.1f}", 
+        cv2.putText(frame, f"People: {total_people} | Groups: {total_groups} | Individuals: {individual_people}",
                    (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        
+
         y_offset += 20
-        cv2.putText(frame, f"Zones - Congested: {congested_zones} | Normal: {normal_zones} | Clear: {clear_zones}", 
+        cv2.putText(frame, f"Zones - Congested: {congested_zones} | Normal: {normal_zones} | Clear: {clear_zones}",
                    (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         
         # Progress and time
@@ -410,7 +468,7 @@ class AdvancedCrowdDetector:
         # Timestamp and features
         y_offset += 20
         timestamp = datetime.now().strftime("%H:%M:%S")
-        cv2.putText(frame, f"Time: {timestamp} | Features: Heatmap + Zones + Tracking", 
+        cv2.putText(frame, f"Time: {timestamp} | Features: Group Merging + Zones + Tracking",
                    (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
         
         # Right side - Zone summary
@@ -422,10 +480,10 @@ class AdvancedCrowdDetector:
         for zone_name, zone_data in zones.items():
             status = zone_data['status']
             color = zone_data['color']
-            density = zone_data['density']
-            
-            text = f"{zone_name}: {status} ({density:.2f})"
-            cv2.putText(frame, text, (right_x, y_pos), 
+            people_count = zone_data['people_count']
+
+            text = f"{zone_name}: {status} ({people_count} people)"
+            cv2.putText(frame, text, (right_x, y_pos),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1)
             y_pos += 15
     
@@ -433,7 +491,7 @@ class AdvancedCrowdDetector:
         """Process video with advanced crowd detection features"""
         print(f"🎬 Processing video: {video_path}")
         print(f"💾 Output: {output_path} (768x576 @ 7 FPS)")
-        print("🔥 Features: Heatmaps | Zone Analysis | Movement Tracking | Statistics")
+        print("🔥 Features: Group Merging | Zone Analysis | Movement Tracking | Statistics")
         
         # Open video
         cap = cv2.VideoCapture(video_path)
@@ -486,31 +544,28 @@ class AdvancedCrowdDetector:
             
             # Step 1: Detect people
             detections = self.detect_people_enhanced(frame)
-            
+
             # Step 2: Update tracking
             tracks = self.update_tracking(detections)
-            
-            # Step 3: Update heatmap
-            heatmap = self.update_heatmap(tracks, frame.shape)
-            
-            # Step 4: Analyze zones
-            zones = self.analyze_zones(heatmap, frame.shape)
-            
+
+            # Step 3: Merge nearby rectangles into groups
+            groups = self.merge_nearby_rectangles(tracks)
+
+            # Step 4: Analyze zones based on groups
+            zones = self.analyze_zones(groups, frame.shape)
+
             # Step 5: Draw all visualizations
-            # Draw heatmap overlay
-            frame = self.draw_heatmap_overlay(frame, heatmap)
-            
             # Draw movement trails
-            self.draw_movement_trails(frame, tracks)
-            
-            # Draw detections and tracking
-            self.draw_detections_and_tracking(frame, tracks)
-            
+            self.draw_movement_trails(frame, groups)
+
+            # Draw merged group rectangles
+            self.draw_merged_groups(frame, groups)
+
             # Draw zone labels
             self.draw_zone_labels(frame, zones)
-            
+
             # Draw statistics panel
-            self.draw_statistics_panel(frame, tracks, zones, processed_count, total_frames // frame_skip)
+            self.draw_statistics_panel(frame, groups, zones, processed_count, total_frames // frame_skip)
             
             # Write frame
             out.write(frame)
@@ -523,13 +578,17 @@ class AdvancedCrowdDetector:
         if len(self.frame_stats) > 0:
             avg_people = np.mean([s['people'] for s in self.frame_stats])
             max_people = max([s['people'] for s in self.frame_stats])
+            avg_groups = np.mean([s['groups'] for s in self.frame_stats])
+            max_groups = max([s['groups'] for s in self.frame_stats])
             avg_congested = np.mean([s['congested'] for s in self.frame_stats])
-            
+
             print(f"\n✅ Advanced processing complete!")
             print(f"📊 Final Statistics:")
             print(f"   - Frames processed: {processed_count}")
             print(f"   - Average people detected: {avg_people:.1f}")
             print(f"   - Maximum people detected: {max_people}")
+            print(f"   - Average groups formed: {avg_groups:.1f}")
+            print(f"   - Maximum groups formed: {max_groups}")
             print(f"   - Average congested zones: {avg_congested:.1f}")
             print(f"   - Output resolution: {target_width}x{target_height} @ {target_fps} FPS")
             print(f"💾 Output saved to: {output_path}")
@@ -555,7 +614,7 @@ def main():
         
         if success:
             print("🎉 Advanced crowd detection completed successfully!")
-            print("🔥 Features delivered: Heatmaps ✓ | Zone Analysis ✓ | Movement Tracking ✓ | Statistics ✓")
+            print("🔥 Features delivered: Group Merging ✓ | Zone Analysis ✓ | Movement Tracking ✓ | Statistics ✓")
         else:
             print("❌ Advanced crowd detection failed!")
             
