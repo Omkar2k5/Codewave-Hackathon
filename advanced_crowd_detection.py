@@ -19,9 +19,37 @@ from collections import deque, defaultdict
 import math
 import colorsys
 
+# YOLOv8 imports for high-accuracy detection
+try:
+    from ultralytics import YOLO
+    YOLO_AVAILABLE = True
+    print("✅ YOLOv8 (ultralytics) available - High accuracy detection enabled")
+except ImportError:
+    YOLO_AVAILABLE = False
+    print("⚠️ YOLOv8 not available, falling back to HOG detection")
+    print("💡 Install with: pip install ultralytics")
+
 class AdvancedCrowdDetector:
     def __init__(self):
-        # Initialize detection components
+        # Initialize YOLOv8 model (highest accuracy detector)
+        self.yolo_model = None
+        self.use_yolo = False
+
+        if YOLO_AVAILABLE:
+            try:
+                print("🔄 Loading YOLOv8 model (high accuracy)...")
+                # Use YOLOv8 medium model for better accuracy (can use yolov8s.pt, yolov8m.pt, yolov8l.pt, yolov8x.pt)
+                self.yolo_model = YOLO('yolov8m.pt')  # Medium model for good balance of speed/accuracy
+                self.use_yolo = True
+                print("✅ YOLOv8 medium model loaded successfully!")
+                print("🎯 High-accuracy COCO pretrained detection enabled")
+            except Exception as e:
+                print(f"⚠️ Failed to load YOLOv8: {e}")
+                print("📦 Falling back to traditional methods")
+                self.yolo_model = None
+                self.use_yolo = False
+
+        # Initialize traditional detection components as fallback/supplement
         self.hog = cv2.HOGDescriptor()
         self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
         self.backSub = cv2.createBackgroundSubtractorMOG2(detectShadows=True, history=500, varThreshold=30)
@@ -43,22 +71,48 @@ class AdvancedCrowdDetector:
         self.zone_history = deque(maxlen=50)
         
         print("✅ Advanced Crowd Detection System initialized!")
-        print("📊 Features: Group Merging | Zone Analysis | Movement Tracking | Real-time Stats")
+        if self.use_yolo:
+            print("🎯 Features: YOLOv8 High-Accuracy Detection | Group Merging | Zone Analysis | Movement Tracking")
+        else:
+            print("📊 Features: HOG Detection | Group Merging | Zone Analysis | Movement Tracking | Real-time Stats")
     
     def detect_people_enhanced(self, frame):
-        """Enhanced people detection with multiple methods"""
+        """Enhanced people detection with YOLOv8 high-accuracy detection"""
         detections = []
-        
-        # Method 1: HOG Detection
-        try:
-            boxes, weights = self.hog.detectMultiScale(
-                frame, winStride=(8, 8), padding=(16, 16), scale=1.05
-            )
-            for i, (x, y, w, h) in enumerate(boxes):
-                if weights[i] > 0.5:  # Confidence threshold
-                    detections.append([x, y, w, h, 'HOG', weights[i]])
-        except:
-            pass
+
+        # Method 1: YOLOv8 Detection (Primary - Highest Accuracy)
+        if self.use_yolo and self.yolo_model is not None:
+            try:
+                results = self.yolo_model(frame, verbose=False)
+
+                for result in results:
+                    boxes = result.boxes
+                    if boxes is not None:
+                        for box in boxes:
+                            # Get class ID and confidence
+                            class_id = int(box.cls[0])
+                            confidence = float(box.conf[0])
+
+                            # Only detect persons (class 0 in COCO dataset)
+                            if class_id == 0 and confidence > 0.3:  # Lower threshold for better detection
+                                # Get bounding box coordinates
+                                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
+                                x, y, w, h = int(x1), int(y1), int(x2 - x1), int(y2 - y1)
+                                detections.append([x, y, w, h, 'YOLOv8', confidence])
+            except Exception as e:
+                print(f"YOLOv8 detection error: {e}")
+
+        # Method 2: HOG Detection (Fallback/Supplement)
+        if not self.use_yolo or len(detections) == 0:
+            try:
+                boxes, weights = self.hog.detectMultiScale(
+                    frame, winStride=(8, 8), padding=(16, 16), scale=1.05
+                )
+                for i, (x, y, w, h) in enumerate(boxes):
+                    if weights[i] > 0.5:  # Confidence threshold
+                        detections.append([x, y, w, h, 'HOG', weights[i]])
+            except:
+                pass
         
         # Method 2: Background Subtraction
         fgMask = self.backSub.apply(frame)
@@ -353,7 +407,7 @@ class AdvancedCrowdDetector:
             count = group['count']
             is_group = group['is_group']
 
-            # Choose color based on group size with better distinction
+            # Choose color based on group size and detection method
             if is_group:
                 if count == 2:
                     color = (0, 255, 255)  # Cyan for pairs
@@ -366,11 +420,18 @@ class AdvancedCrowdDetector:
                 thickness = 4
                 label = f"GROUP-{group_idx+1}: {count} people"
             else:
-                color = (0, 255, 0)  # Green for individuals
-                thickness = 2
                 track_id, track = group['tracks'][0]
                 method = track['method']
-                label = f"PERSON-{track_id} ({method})"
+
+                # Color based on detection method
+                if method == 'YOLOv8':
+                    color = (255, 0, 255)  # Magenta for YOLOv8 (high accuracy)
+                    thickness = 3
+                    label = f"YOLO-{track_id} (High Accuracy)"
+                else:
+                    color = (0, 255, 0)  # Green for traditional methods
+                    thickness = 2
+                    label = f"PERSON-{track_id} ({method})"
 
             # Draw SINGLE unified bounding box for the entire group
             cv2.rectangle(frame, (x, y), (x + w, y + h), color, thickness)
@@ -500,8 +561,12 @@ class AdvancedCrowdDetector:
         # Draw statistics
         y_offset = 20
         
-        # Title
-        cv2.putText(frame, "ADVANCED CROWD DETECTION - GROUP MERGING",
+        # Title with detection method
+        if hasattr(self, 'use_yolo') and self.use_yolo:
+            title = "YOLOv8 HIGH-ACCURACY CROWD DETECTION"
+        else:
+            title = "ADVANCED CROWD DETECTION - GROUP MERGING"
+        cv2.putText(frame, title,
                    (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         # Current stats
@@ -522,7 +587,11 @@ class AdvancedCrowdDetector:
         # Timestamp and features
         y_offset += 20
         timestamp = datetime.now().strftime("%H:%M:%S")
-        cv2.putText(frame, f"Time: {timestamp} | Features: Group Merging + Zones + Tracking",
+        if hasattr(self, 'use_yolo') and self.use_yolo:
+            features_text = f"Time: {timestamp} | YOLOv8 + Group Merging + Zones + Tracking"
+        else:
+            features_text = f"Time: {timestamp} | Features: Group Merging + Zones + Tracking"
+        cv2.putText(frame, features_text,
                    (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
         
         # Right side - Zone summary
