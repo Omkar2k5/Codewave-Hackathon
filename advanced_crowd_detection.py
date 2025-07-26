@@ -54,12 +54,20 @@ class AdvancedCrowdDetector:
         self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
         self.backSub = cv2.createBackgroundSubtractorMOG2(detectShadows=True, history=500, varThreshold=30)
         
-        # Tracking system
+        # Enhanced tracking system with temporal filtering
         self.next_id = 0
         self.tracks = {}
         self.disappeared = {}
         self.max_disappeared = 15
         self.max_distance = 80
+
+        # Temporal filtering for smooth bounding boxes
+        self.bbox_history = defaultdict(lambda: deque(maxlen=5))  # Store last 5 bounding boxes
+        self.confidence_history = defaultdict(lambda: deque(maxlen=3))  # Store confidence history
+
+        # Optimized confidence thresholds
+        self.yolo_confidence_threshold = 0.4  # Optimized for YOLOv8 to reduce false positives
+        self.hog_confidence_threshold = 0.6   # Higher threshold for HOG to reduce noise
         
         # Group tracking and merging
         self.group_rectangles = {}  # Store merged rectangles for groups
@@ -72,9 +80,9 @@ class AdvancedCrowdDetector:
         
         print("✅ Advanced Crowd Detection System initialized!")
         if self.use_yolo:
-            print("🎯 Features: YOLOv8 High-Accuracy Detection | Group Merging | Zone Analysis | Movement Tracking")
+            print("🎯 Features: YOLOv8 High-Accuracy Detection | Temporal Filtering | Group Merging | Movement Tracking")
         else:
-            print("📊 Features: HOG Detection | Group Merging | Zone Analysis | Movement Tracking | Real-time Stats")
+            print("📊 Features: HOG Detection | Temporal Filtering | Group Merging | Movement Tracking | Real-time Stats")
     
     def detect_people_enhanced(self, frame):
         """Enhanced people detection with YOLOv8 high-accuracy detection"""
@@ -94,7 +102,7 @@ class AdvancedCrowdDetector:
                             confidence = float(box.conf[0])
 
                             # Only detect persons (class 0 in COCO dataset)
-                            if class_id == 0 and confidence > 0.3:  # Lower threshold for better detection
+                            if class_id == 0 and confidence > self.yolo_confidence_threshold:
                                 # Get bounding box coordinates
                                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                                 x, y, w, h = int(x1), int(y1), int(x2 - x1), int(y2 - y1)
@@ -109,7 +117,7 @@ class AdvancedCrowdDetector:
                     frame, winStride=(8, 8), padding=(16, 16), scale=1.05
                 )
                 for i, (x, y, w, h) in enumerate(boxes):
-                    if weights[i] > 0.5:  # Confidence threshold
+                    if weights[i] > self.hog_confidence_threshold:  # Optimized confidence threshold
                         detections.append([x, y, w, h, 'HOG', weights[i]])
             except:
                 pass
@@ -131,6 +139,54 @@ class AdvancedCrowdDetector:
                     detections.append([x, y, w, h, 'Motion', confidence])
         
         return detections
+
+    def apply_temporal_filtering(self, track_id, bbox, confidence):
+        """Apply temporal filtering for smooth bounding boxes"""
+        # Store current bbox and confidence
+        self.bbox_history[track_id].append(bbox)
+        self.confidence_history[track_id].append(confidence)
+
+        # Calculate smoothed bounding box using weighted average
+        if len(self.bbox_history[track_id]) > 1:
+            weights = np.linspace(0.1, 1.0, len(self.bbox_history[track_id]))
+            weights = weights / weights.sum()
+
+            smoothed_bbox = np.zeros(4)
+            for i, (bbox_hist, weight) in enumerate(zip(self.bbox_history[track_id], weights)):
+                smoothed_bbox += np.array(bbox_hist) * weight
+
+            smoothed_bbox = smoothed_bbox.astype(int).tolist()
+        else:
+            smoothed_bbox = bbox
+
+        # Calculate smoothed confidence
+        smoothed_confidence = np.mean(list(self.confidence_history[track_id]))
+
+        return smoothed_bbox, smoothed_confidence
+
+    def validate_detection_quality(self, bbox, confidence, method):
+        """Validate detection quality to reduce false positives"""
+        x, y, w, h = bbox
+
+        # Basic size validation
+        if w < 20 or h < 40:  # Too small to be a person
+            return False
+
+        if w > 300 or h > 500:  # Too large, likely false positive
+            return False
+
+        # Aspect ratio validation
+        aspect_ratio = h / w if w > 0 else 0
+        if aspect_ratio < 1.2 or aspect_ratio > 4.0:  # Not person-like aspect ratio
+            return False
+
+        # Method-specific confidence validation
+        if method == 'YOLOv8' and confidence < self.yolo_confidence_threshold:
+            return False
+        elif method == 'HOG' and confidence < self.hog_confidence_threshold:
+            return False
+
+        return True
     
     def update_tracking(self, detections):
         """Update tracking system with new detections"""
@@ -192,11 +248,20 @@ class AdvancedCrowdDetector:
                         det = detections[col]
                         x, y, w, h = det[:4]
                         
+                        # Apply temporal filtering for smooth bounding boxes
+                        smoothed_bbox, smoothed_confidence = self.apply_temporal_filtering(
+                            track_id, [x, y, w, h], det[5]
+                        )
+
+                        # Update smoothed center
+                        smoothed_center = [smoothed_bbox[0] + smoothed_bbox[2]//2,
+                                         smoothed_bbox[1] + smoothed_bbox[3]//2]
+
                         self.tracks[track_id].update({
-                            'center': detection_centers[col],
-                            'bbox': [x, y, w, h],
+                            'center': smoothed_center,
+                            'bbox': smoothed_bbox,
                             'method': det[4],
-                            'confidence': det[5],
+                            'confidence': smoothed_confidence,
                             'age': self.tracks[track_id]['age'] + 1
                         })
                         self.disappeared[track_id] = 0
@@ -347,58 +412,38 @@ class AdvancedCrowdDetector:
 
         return (x2_i - x1_i) * (y2_i - y1_i)
     
-    def analyze_zones(self, groups, frame_shape):
-        """Analyze different zones and classify density levels based on people count"""
+    def calculate_overall_density(self, groups, frame_shape):
+        """Calculate overall crowd density without zone subdivision"""
         height, width = frame_shape[:2]
-        zones = {}
+        total_people = sum(group['count'] for group in groups)
 
-        # Define zones (divide frame into 3x3 grid)
-        zone_height = height // 3
-        zone_width = width // 3
+        # Calculate density metrics
+        frame_area = width * height
+        people_per_area = (total_people / frame_area) * 10000  # Per 10k pixels
 
-        zone_labels = [
-            ['Top-Left', 'Top-Center', 'Top-Right'],
-            ['Mid-Left', 'Center', 'Mid-Right'],
-            ['Bottom-Left', 'Bottom-Center', 'Bottom-Right']
-        ]
+        # Determine overall density level
+        if total_people == 0:
+            density_level = "Empty"
+            density_color = (128, 128, 128)  # Gray
+        elif people_per_area < 1.0:
+            density_level = "Low"
+            density_color = (0, 255, 0)  # Green
+        elif people_per_area < 3.0:
+            density_level = "Medium"
+            density_color = (0, 255, 255)  # Yellow
+        elif people_per_area < 6.0:
+            density_level = "High"
+            density_color = (0, 165, 255)  # Orange
+        else:
+            density_level = "Very High"
+            density_color = (0, 0, 255)  # Red
 
-        for i in range(3):
-            for j in range(3):
-                y1 = i * zone_height
-                y2 = (i + 1) * zone_height if i < 2 else height
-                x1 = j * zone_width
-                x2 = (j + 1) * zone_width if j < 2 else width
-
-                # Count people in this zone
-                people_in_zone = 0
-                for group in groups:
-                    group_x, group_y, group_w, group_h = group['bbox']
-                    group_center_x = group_x + group_w // 2
-                    group_center_y = group_y + group_h // 2
-
-                    # Check if group center is in this zone
-                    if x1 <= group_center_x < x2 and y1 <= group_center_y < y2:
-                        people_in_zone += group['count']
-
-                # Classify density based on people count
-                if people_in_zone == 0:
-                    status = "Clear"
-                    color = (0, 255, 0)  # Green
-                elif people_in_zone <= 3:
-                    status = "Normal"
-                    color = (0, 255, 255)  # Yellow
-                else:
-                    status = "Congested"
-                    color = (0, 0, 255)  # Red
-
-                zones[zone_labels[i][j]] = {
-                    'people_count': people_in_zone,
-                    'status': status,
-                    'color': color,
-                    'bounds': (x1, y1, x2, y2)
-                }
-
-        return zones
+        return {
+            'total_people': total_people,
+            'density_level': density_level,
+            'density_color': density_color,
+            'people_per_area': people_per_area
+        }
     
     def draw_merged_groups(self, frame, groups):
         """Draw ONLY merged group rectangles - no overlapping boxes"""
@@ -522,7 +567,7 @@ class AdvancedCrowdDetector:
     
 
     
-    def draw_statistics_panel(self, frame, groups, zones, frame_count, total_frames):
+    def draw_statistics_panel(self, frame, groups, density_info, frame_count, total_frames):
         """Draw comprehensive statistics panel"""
         height, width = frame.shape[:2]
         panel_height = 120
@@ -536,27 +581,26 @@ class AdvancedCrowdDetector:
         total_people = sum(group['count'] for group in groups)
         total_groups = len([g for g in groups if g['is_group']])
         individual_people = len([g for g in groups if not g['is_group']])
-        congested_zones = len([z for z in zones.values() if z['status'] == 'Congested'])
-        normal_zones = len([z for z in zones.values() if z['status'] == 'Normal'])
-        clear_zones = len([z for z in zones.values() if z['status'] == 'Clear'])
+        density_level = density_info['density_level']
+        density_color = density_info['density_color']
+        people_per_area = density_info['people_per_area']
         
         # Update frame stats
         self.frame_stats.append({
             'people': total_people,
             'groups': total_groups,
             'individuals': individual_people,
-            'congested': congested_zones,
-            'normal': normal_zones,
-            'clear': clear_zones
+            'density_level': density_level,
+            'people_per_area': people_per_area
         })
         
         # Calculate averages
         if len(self.frame_stats) > 0:
             avg_people = np.mean([s['people'] for s in self.frame_stats])
-            avg_congested = np.mean([s['congested'] for s in self.frame_stats])
+            avg_density = np.mean([s['people_per_area'] for s in self.frame_stats])
         else:
             avg_people = total_people
-            avg_congested = congested_zones
+            avg_density = people_per_area
         
         # Draw statistics
         y_offset = 20
@@ -575,8 +619,8 @@ class AdvancedCrowdDetector:
                    (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
         y_offset += 20
-        cv2.putText(frame, f"Zones - Congested: {congested_zones} | Normal: {normal_zones} | Clear: {clear_zones}",
-                   (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        cv2.putText(frame, f"Density: {density_level} | {people_per_area:.2f} people/10k px",
+                   (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, density_color, 2)
         
         # Progress and time
         y_offset += 20
@@ -588,27 +632,29 @@ class AdvancedCrowdDetector:
         y_offset += 20
         timestamp = datetime.now().strftime("%H:%M:%S")
         if hasattr(self, 'use_yolo') and self.use_yolo:
-            features_text = f"Time: {timestamp} | YOLOv8 + Group Merging + Zones + Tracking"
+            features_text = f"Time: {timestamp} | YOLOv8 + Temporal Filtering + Group Merging"
         else:
-            features_text = f"Time: {timestamp} | Features: Group Merging + Zones + Tracking"
+            features_text = f"Time: {timestamp} | Temporal Filtering + Group Merging + Tracking"
         cv2.putText(frame, features_text,
                    (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
         
-        # Right side - Zone summary
-        right_x = width - 300
-        cv2.putText(frame, "ZONE STATUS SUMMARY", 
+        # Right side - Detection method info
+        right_x = width - 280
+        cv2.putText(frame, "DETECTION METHODS",
                    (right_x, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        
-        y_pos = 40
-        for zone_name, zone_data in zones.items():
-            status = zone_data['status']
-            color = zone_data['color']
-            people_count = zone_data['people_count']
 
-            text = f"{zone_name}: {status} ({people_count} people)"
-            cv2.putText(frame, text, (right_x, y_pos),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1)
-            y_pos += 15
+        y_pos = 40
+        if hasattr(self, 'use_yolo') and self.use_yolo:
+            cv2.putText(frame, "YOLOv8: Magenta (High Accuracy)",
+                       (right_x, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 255), 1)
+            y_pos += 20
+
+        cv2.putText(frame, "HOG: Green (Traditional)",
+                   (right_x, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+        y_pos += 20
+
+        cv2.putText(frame, "Groups: Cyan/Orange/Red",
+                   (right_x, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
     
     def process_video(self, video_path, output_path):
         """Process video with advanced crowd detection features"""
@@ -674,8 +720,8 @@ class AdvancedCrowdDetector:
             # Step 3: Merge nearby rectangles into groups
             groups = self.merge_nearby_rectangles(tracks)
 
-            # Step 4: Analyze zones based on groups
-            zones = self.analyze_zones(groups, frame.shape)
+            # Step 4: Calculate overall density
+            density_info = self.calculate_overall_density(groups, frame.shape)
 
             # Step 5: Draw all visualizations
             # Draw movement trails
@@ -684,11 +730,8 @@ class AdvancedCrowdDetector:
             # Draw merged group rectangles
             self.draw_merged_groups(frame, groups)
 
-            # Draw zone labels
-            self.draw_zone_labels(frame, zones)
-
             # Draw statistics panel
-            self.draw_statistics_panel(frame, groups, zones, processed_count, total_frames // frame_skip)
+            self.draw_statistics_panel(frame, groups, density_info, processed_count, total_frames // frame_skip)
             
             # Write frame
             out.write(frame)
@@ -703,7 +746,7 @@ class AdvancedCrowdDetector:
             max_people = max([s['people'] for s in self.frame_stats])
             avg_groups = np.mean([s['groups'] for s in self.frame_stats])
             max_groups = max([s['groups'] for s in self.frame_stats])
-            avg_congested = np.mean([s['congested'] for s in self.frame_stats])
+            avg_density = np.mean([s['people_per_area'] for s in self.frame_stats])
 
             print(f"\n✅ Advanced processing complete!")
             print(f"📊 Final Statistics:")
@@ -712,8 +755,10 @@ class AdvancedCrowdDetector:
             print(f"   - Maximum people detected: {max_people}")
             print(f"   - Average groups formed: {avg_groups:.1f}")
             print(f"   - Maximum groups formed: {max_groups}")
-            print(f"   - Average congested zones: {avg_congested:.1f}")
+            print(f"   - Average density: {avg_density:.2f} people/10k pixels")
             print(f"   - Output resolution: {target_width}x{target_height} @ {target_fps} FPS")
+            print(f"   - Temporal filtering: Enabled for smooth bounding boxes")
+            print(f"   - Optimized thresholds: YOLOv8={self.yolo_confidence_threshold}, HOG={self.hog_confidence_threshold}")
             print(f"💾 Output saved to: {output_path}")
         
         return True
