@@ -62,12 +62,16 @@ class AdvancedCrowdDetector:
         self.max_distance = 80
 
         # Temporal filtering for smooth bounding boxes
-        self.bbox_history = defaultdict(lambda: deque(maxlen=5))  # Store last 5 bounding boxes
-        self.confidence_history = defaultdict(lambda: deque(maxlen=3))  # Store confidence history
+        self.bbox_history = defaultdict(lambda: deque(maxlen=3))  # Reduced to 3 for speed
+        self.confidence_history = defaultdict(lambda: deque(maxlen=2))  # Reduced to 2 for speed
 
         # Optimized confidence thresholds
-        self.yolo_confidence_threshold = 0.4  # Optimized for YOLOv8 to reduce false positives
-        self.hog_confidence_threshold = 0.6   # Higher threshold for HOG to reduce noise
+        self.yolo_confidence_threshold = 0.5  # Slightly higher for speed and accuracy
+        self.hog_confidence_threshold = 0.7   # Higher threshold for HOG to reduce noise
+
+        # Speed optimization settings
+        self.detection_skip_frames = 2  # Process every 3rd frame for detection
+        self.frame_counter = 0
         
         # Group tracking and merging
         self.group_rectangles = {}  # Store merged rectangles for groups
@@ -85,13 +89,20 @@ class AdvancedCrowdDetector:
             print("📊 Features: HOG Detection | Temporal Filtering | Group Merging | Movement Tracking | Real-time Stats")
     
     def detect_people_enhanced(self, frame):
-        """Enhanced people detection with YOLOv8 high-accuracy detection"""
+        """Enhanced people detection with speed optimization"""
         detections = []
+
+        # Speed optimization: Skip detection on some frames
+        self.frame_counter += 1
+        if self.frame_counter % (self.detection_skip_frames + 1) != 0:
+            # Return previous detections for skipped frames
+            return self.last_detections if hasattr(self, 'last_detections') else []
 
         # Method 1: YOLOv8 Detection (Primary - Highest Accuracy)
         if self.use_yolo and self.yolo_model is not None:
             try:
-                results = self.yolo_model(frame, verbose=False)
+                # Use smaller input size for speed
+                results = self.yolo_model(frame, verbose=False, imgsz=416)  # Smaller size for speed
 
                 for result in results:
                     boxes = result.boxes
@@ -106,37 +117,31 @@ class AdvancedCrowdDetector:
                                 # Get bounding box coordinates
                                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
                                 x, y, w, h = int(x1), int(y1), int(x2 - x1), int(y2 - y1)
-                                detections.append([x, y, w, h, 'YOLOv8', confidence])
+
+                                # Validate detection quality for speed
+                                if self.validate_detection_quality([x, y, w, h], confidence, 'YOLOv8'):
+                                    detections.append([x, y, w, h, 'YOLOv8', confidence])
             except Exception as e:
                 print(f"YOLOv8 detection error: {e}")
 
-        # Method 2: HOG Detection (Fallback/Supplement)
-        if not self.use_yolo or len(detections) == 0:
+        # Method 2: HOG Detection (Fallback only if no YOLO detections)
+        if not self.use_yolo or len(detections) < 3:  # Only use HOG if few YOLO detections
             try:
+                # Faster HOG parameters
                 boxes, weights = self.hog.detectMultiScale(
-                    frame, winStride=(8, 8), padding=(16, 16), scale=1.05
+                    frame, winStride=(12, 12), padding=(24, 24), scale=1.1  # Larger steps for speed
                 )
                 for i, (x, y, w, h) in enumerate(boxes):
-                    if weights[i] > self.hog_confidence_threshold:  # Optimized confidence threshold
-                        detections.append([x, y, w, h, 'HOG', weights[i]])
+                    if weights[i] > self.hog_confidence_threshold:
+                        if self.validate_detection_quality([x, y, w, h], weights[i], 'HOG'):
+                            detections.append([x, y, w, h, 'HOG', weights[i]])
             except:
                 pass
+
+        # Store for frame skipping
+        self.last_detections = detections
         
-        # Method 2: Background Subtraction
-        fgMask = self.backSub.apply(frame)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_OPEN, kernel)
-        fgMask = cv2.morphologyEx(fgMask, cv2.MORPH_CLOSE, kernel)
-        
-        contours, _ = cv2.findContours(fgMask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if 800 < area < 8000:
-                x, y, w, h = cv2.boundingRect(contour)
-                aspect_ratio = h / w if w > 0 else 0
-                if 1.2 < aspect_ratio < 4.0:
-                    confidence = min(area / 3000, 1.0)
-                    detections.append([x, y, w, h, 'Motion', confidence])
+        # Skip background subtraction for speed optimization
         
         return detections
 
@@ -445,53 +450,8 @@ class AdvancedCrowdDetector:
             'people_per_area': people_per_area
         }
     
-    def draw_anti_aliased_rectangle(self, frame, pt1, pt2, color, thickness):
-        """Draw anti-aliased rectangle for smoother appearance"""
-        overlay = frame.copy()
-        cv2.rectangle(overlay, pt1, pt2, color, thickness, lineType=cv2.LINE_AA)
-        return overlay
-
-    def draw_semi_transparent_mask(self, frame, bbox, color, alpha=0.2):
-        """Draw semi-transparent mask over detection area"""
-        x, y, w, h = bbox
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (x, y), (x + w, y + h), color, -1)
-        cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
-
-    def draw_enhanced_label(self, frame, text, position, color, bg_color=None):
-        """Draw enhanced label with better typography and background"""
-        x, y = position
-        font = cv2.FONT_HERSHEY_DUPLEX  # Better font for clarity
-        font_scale = 0.6
-        thickness = 1
-
-        # Get text size
-        (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
-
-        # Create rounded background
-        padding = 8
-        bg_x1 = x - padding
-        bg_y1 = y - text_height - padding - baseline
-        bg_x2 = x + text_width + padding
-        bg_y2 = y + padding
-
-        if bg_color is None:
-            bg_color = (0, 0, 0)
-
-        # Draw background with rounded corners effect
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (bg_x1, bg_y1), (bg_x2, bg_y2), bg_color, -1)
-        cv2.addWeighted(overlay, 0.8, frame, 0.2, 0, frame)
-
-        # Draw border
-        cv2.rectangle(frame, (bg_x1, bg_y1), (bg_x2, bg_y2), color, 1, lineType=cv2.LINE_AA)
-
-        # Draw text with anti-aliasing
-        cv2.putText(frame, text, (x, y), font, font_scale, (255, 255, 255), thickness + 1, lineType=cv2.LINE_AA)
-        cv2.putText(frame, text, (x, y), font, font_scale, color, thickness, lineType=cv2.LINE_AA)
-
     def draw_merged_groups(self, frame, groups):
-        """Draw enhanced merged group rectangles with anti-aliasing and transparency"""
+        """Draw ONLY merged group rectangles - no overlapping boxes"""
         for group_idx, group in enumerate(groups):
             x, y, w, h = group['bbox']
             count = group['count']
@@ -501,18 +461,14 @@ class AdvancedCrowdDetector:
             if is_group:
                 if count == 2:
                     color = (0, 255, 255)  # Cyan for pairs
-                    mask_color = (0, 255, 255)
                 elif count <= 4:
                     color = (0, 165, 255)  # Orange for small groups
-                    mask_color = (0, 165, 255)
                 elif count <= 8:
                     color = (0, 100, 255)  # Dark orange for medium groups
-                    mask_color = (0, 100, 255)
                 else:
                     color = (0, 0, 255)  # Red for large groups
-                    mask_color = (0, 0, 255)
-                thickness = 3
-                label = f"GROUP {count} PEOPLE"
+                thickness = 4
+                label = f"GROUP ({count})"
             else:
                 track_id, track = group['tracks'][0]
                 method = track['method']
@@ -520,73 +476,32 @@ class AdvancedCrowdDetector:
                 # Color based on detection method
                 if method == 'YOLOv8':
                     color = (255, 0, 255)  # Magenta for YOLOv8 (high accuracy)
-                    mask_color = (255, 0, 255)
-                    label = f"PERSON {track_id}"
+                    thickness = 3
+                    label = "PERSON"
                 else:
                     color = (0, 255, 0)  # Green for traditional methods
-                    mask_color = (0, 255, 0)
-                    label = f"PERSON {track_id}"
-                thickness = 2
+                    thickness = 2
+                    label = "PERSON"
 
-            # Draw semi-transparent mask
-            self.draw_semi_transparent_mask(frame, [x, y, w, h], mask_color, alpha=0.15)
+            # Draw SINGLE unified bounding box for the entire group
+            cv2.rectangle(frame, (x, y), (x + w, y + h), color, thickness)
 
-            # Draw anti-aliased bounding box
-            cv2.rectangle(frame, (x, y), (x + w, y + h), color, thickness, lineType=cv2.LINE_AA)
+            # Draw label with background
+            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+            cv2.rectangle(frame, (x, y - label_size[1] - 15),
+                         (x + label_size[0] + 15, y), color, -1)
+            cv2.putText(frame, label, (x + 7, y - 7),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-            # Draw enhanced label
-            self.draw_enhanced_label(frame, label, (x + 5, y - 10), color)
 
-            # Draw enhanced center point with glow effect
-            center_x = x + w // 2
-            center_y = y + h // 2
 
-            # Glow effect
-            for radius in [12, 8, 4]:
-                alpha = 0.3 if radius == 12 else 0.6 if radius == 8 else 1.0
-                overlay = frame.copy()
-                cv2.circle(overlay, (center_x, center_y), radius, color, -1, lineType=cv2.LINE_AA)
-                cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
 
-            # White center dot
-            cv2.circle(frame, (center_x, center_y), 2, (255, 255, 255), -1, lineType=cv2.LINE_AA)
 
-            # For groups, show individual detection points with enhanced visibility
-            if is_group:
-                for i, (track_id, track) in enumerate(group['tracks']):
-                    track_center = track['center']
-                    tx, ty = int(track_center[0]), int(track_center[1])
-
-                    # Enhanced individual points with glow
-                    overlay = frame.copy()
-                    cv2.circle(overlay, (tx, ty), 6, (255, 255, 255), -1, lineType=cv2.LINE_AA)
-                    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-
-                    cv2.circle(frame, (tx, ty), 3, color, -1, lineType=cv2.LINE_AA)
-                    cv2.circle(frame, (tx, ty), 3, (255, 255, 255), 1, lineType=cv2.LINE_AA)
-
-                    # Enhanced ID label
-                    id_text = str(track_id)
-                    self.draw_enhanced_label(frame, id_text, (tx - 15, ty - 15), (255, 255, 255), (0, 0, 0))
-
-            # Enhanced count indicator
-            if count > 1:
-                count_text = str(count)
-                badge_x, badge_y = x + w - 25, y + 25
-
-                # Draw badge background with glow
-                overlay = frame.copy()
-                cv2.circle(overlay, (badge_x, badge_y), 15, color, -1, lineType=cv2.LINE_AA)
-                cv2.addWeighted(overlay, 0.9, frame, 0.1, 0, frame)
-
-                cv2.circle(frame, (badge_x, badge_y), 15, (255, 255, 255), 2, lineType=cv2.LINE_AA)
-
-                # Draw count text
-                text_size = cv2.getTextSize(count_text, cv2.FONT_HERSHEY_DUPLEX, 0.6, 2)[0]
-                text_x = badge_x - text_size[0] // 2
-                text_y = badge_y + text_size[1] // 2
-                cv2.putText(frame, count_text, (text_x, text_y),
-                           cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 2, lineType=cv2.LINE_AA)
+            # Add count indicator in corner
+            count_text = str(count)
+            cv2.circle(frame, (x + w - 15, y + 15), 12, color, -1)
+            cv2.putText(frame, count_text, (x + w - 20, y + 20),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
     
     def draw_zone_labels(self, frame, zones):
         """Draw zone status labels"""
@@ -617,52 +532,25 @@ class AdvancedCrowdDetector:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
     
     def draw_movement_trails(self, frame, groups):
-        """Draw enhanced movement trails with anti-aliasing and transparency"""
-        for group in groups:
-            for track_id, track in group['tracks']:
-                if track_id in self.movement_trails:
-                    trail = list(self.movement_trails[track_id])
-                    if len(trail) > 1:
-                        # Draw trail with enhanced fading effect
-                        for i in range(1, len(trail)):
-                            alpha = (i / len(trail)) * 0.8  # More subtle trails
-                            thickness = max(2, int(4 * alpha))
-
-                            # Color based on track age with better saturation
-                            hue = (track_id * 137.5) % 360  # Golden ratio for color distribution
-                            rgb = colorsys.hsv_to_rgb(hue/360, 0.7, 0.9)
-                            color = tuple(int(c * 255) for c in rgb)
-
-                            # Draw trail with transparency
-                            overlay = frame.copy()
-                            cv2.line(overlay, tuple(map(int, trail[i-1])), tuple(map(int, trail[i])),
-                                    color, thickness, lineType=cv2.LINE_AA)
-                            cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+        """Movement trails tracking (internal only - not displayed)"""
+        # Keep tracking internally but don't draw trails for cleaner display
+        pass
     
 
     
     def draw_statistics_panel(self, frame, groups, density_info, frame_count, total_frames):
-        """Draw clean statistics panel without top navigation"""
+        """Draw clean statistics panel - no top overlay"""
         height, width = frame.shape[:2]
 
-        # Draw minimal bottom statistics bar
-        panel_height = 60
-        panel_y = height - panel_height
-
-        # Create semi-transparent bottom panel
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (0, panel_y), (width, height), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-
-        # Current statistics
+        # Current statistics (internal tracking only)
         total_people = sum(group['count'] for group in groups)
         total_groups = len([g for g in groups if g['is_group']])
         individual_people = len([g for g in groups if not g['is_group']])
         density_level = density_info['density_level']
         density_color = density_info['density_color']
         people_per_area = density_info['people_per_area']
-        
-        # Update frame stats
+
+        # Update frame stats (for final summary only)
         self.frame_stats.append({
             'people': total_people,
             'groups': total_groups,
@@ -670,29 +558,14 @@ class AdvancedCrowdDetector:
             'density_level': density_level,
             'people_per_area': people_per_area
         })
-        
 
-        
-        # Clean bottom statistics - single line
-        stats_y = panel_y + 35
-
-        # Left side - main statistics
-        main_stats = f"People: {total_people} | Groups: {total_groups} | Density: {density_level}"
-        cv2.putText(frame, main_stats, (15, stats_y),
-                   cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1, lineType=cv2.LINE_AA)
-
-        # Right side - progress
-        progress = (frame_count / total_frames) * 100 if total_frames > 0 else 0
-        progress_text = f"Frame {frame_count}/{total_frames} ({progress:.1f}%)"
-        progress_size = cv2.getTextSize(progress_text, cv2.FONT_HERSHEY_DUPLEX, 0.5, 1)[0]
-        cv2.putText(frame, progress_text, (width - progress_size[0] - 15, stats_y),
-                   cv2.FONT_HERSHEY_DUPLEX, 0.5, (200, 200, 200), 1, lineType=cv2.LINE_AA)
+        # NO TOP DISPLAY - Clean video view without overlays
     
     def process_video(self, video_path, output_path):
         """Process video with advanced crowd detection features"""
         print(f"🎬 Processing video: {video_path}")
-        print(f"💾 Output: {output_path} (768x576 @ 7 FPS)")
-        print("🎨 Features: Anti-aliased Graphics | Semi-transparent Masks | Enhanced Labels | Clean UI")
+        print(f"💾 Output: {output_path} (768x576 @ 5 FPS - Speed Optimized)")
+        print("⚡ Features: Fast Processing | Clean Display | Accurate Detection")
         
         # Open video
         cap = cv2.VideoCapture(video_path)
@@ -708,12 +581,12 @@ class AdvancedCrowdDetector:
         
         print(f"📹 Input: {original_width}x{original_height}, {original_fps} FPS, {total_frames} frames")
         
-        # Target specifications (matching op_4.mp4)
+        # Target specifications (optimized for speed)
         target_width, target_height = 768, 576
-        target_fps = 7
-        
-        # Calculate frame skip ratio
-        frame_skip = max(1, original_fps // target_fps)
+        target_fps = 5  # Reduced FPS for faster processing
+
+        # Calculate frame skip ratio (process fewer frames)
+        frame_skip = max(2, original_fps // target_fps)  # Skip more frames
         
         # Setup video writer
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
