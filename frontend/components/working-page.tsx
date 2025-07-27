@@ -43,7 +43,7 @@ export default function WorkingPage() {
           className="text-center mb-16"
         >
           <h1 className="text-5xl md:text-6xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-            How Dhristi Works
+            How Drishti Works
           </h1>
           <p className="text-xl text-gray-300 max-w-3xl mx-auto">
             A sophisticated AI pipeline that transforms raw camera feeds into actionable crowd intelligence

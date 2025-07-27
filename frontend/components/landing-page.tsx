@@ -7,38 +7,8 @@ import { motion } from "framer-motion"
 import * as THREE from "three"
 import { ArrowRight, Users, MapPin, Shield } from "lucide-react"
 import Link from "next/link"
-
-function CursorFollower() {
-  const meshRef = useRef<THREE.Mesh>(null)
-  const mousePosition = useRef({ x: 0, y: 0 })
-
-  useEffect(() => {
-    const handleMouseMove = (event: MouseEvent) => {
-      mousePosition.current = {
-        x: (event.clientX / window.innerWidth) * 2 - 1,
-        y: -(event.clientY / window.innerHeight) * 2 + 1,
-      }
-    }
-
-    window.addEventListener("mousemove", handleMouseMove)
-    return () => window.removeEventListener("mousemove", handleMouseMove)
-  }, [])
-
-  useFrame(() => {
-    if (meshRef.current) {
-      meshRef.current.position.x = THREE.MathUtils.lerp(meshRef.current.position.x, mousePosition.current.x * 2, 0.02)
-      meshRef.current.position.y = THREE.MathUtils.lerp(meshRef.current.position.y, mousePosition.current.y * 2, 0.02)
-      meshRef.current.rotation.x += 0.01
-      meshRef.current.rotation.y += 0.01
-    }
-  })
-
-  return (
-    <Sphere ref={meshRef} args={[1, 100, 200]} scale={0.8}>
-      <MeshDistortMaterial color="#3b82f6" attach="material" distort={0.3} speed={2} roughness={0.2} metalness={0.8} />
-    </Sphere>
-  )
-}
+import DarkVeil from "./DarkVeil"
+import SplitText from "./SplitText"
 
 export default function LandingPage() {
   const challenges = [
@@ -60,28 +30,38 @@ export default function LandingPage() {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900/20 to-purple-900/20 relative overflow-hidden">
-      {/* 3D Background */}
-      <div className="absolute inset-0 opacity-30">
-        <Canvas camera={{ position: [0, 0, 5] }}>
-          <ambientLight intensity={0.5} />
-          <pointLight position={[10, 10, 10]} />
-          <CursorFollower />
-        </Canvas>
-      </div>
-
+    <div className="min-h-screen bg-gradient-to-br via-blue-900/20 to-purple-900/20 relative overflow-hidden">
+      
       {/* Content */}
       <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20">
         <div className="text-center mb-16">
-          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
-            <h1 className="text-6xl md:text-8xl font-bold mb-6 bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-              Dhristi
-            </h1>
-            <p className="text-xl md:text-2xl text-gray-300 mb-8 max-w-3xl mx-auto leading-relaxed">
-              Revolutionizing crowd management in India through real-time AI detection, intelligent analysis, and
-              proactive safety measures
-            </p>
-          </motion.div>
+          <div className="mb-6">
+            <SplitText
+              text="Drishti"
+              className="text-6xl md:text-8xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent"
+              splitType="chars"
+              delay={50}
+              duration={0.8}
+              from={{ opacity: 0, y: 60 }}
+              to={{ opacity: 1, y: 0 }}
+              threshold={0.1}
+              rootMargin="-50px"
+            />
+          </div>
+          
+          <div className="mb-8">
+            <SplitText
+              text="Revolutionizing crowd management in India through real-time AI detection, intelligent analysis, and proactive safety measures"
+              className="text-xl md:text-2xl text-gray-300 max-w-3xl mx-auto leading-relaxed"
+              splitType="words"
+              delay={80}
+              duration={0.6}
+              from={{ opacity: 0, y: 30 }}
+              to={{ opacity: 1, y: 0 }}
+              threshold={0.1}
+              rootMargin="-50px"
+            />
+          </div>
 
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -111,7 +91,7 @@ export default function LandingPage() {
               crowd management relies on manual observation, leading to delayed responses and safety risks.
               <span className="text-blue-400 font-semibold">
                 {" "}
-                Dhristi transforms this with AI-powered real-time detection
+                Drishti transforms this with AI-powered real-time detection
               </span>
               , providing instant insights and proactive safety measures.
             </p>

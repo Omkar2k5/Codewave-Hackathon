@@ -25,46 +25,66 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div className="h-screen bg-gradient-to-br from-gray-900 via-blue-900/10 to-purple-900/10 overflow-hidden">
-      {/* Home Icon */}
-      <motion.div
-        initial={{ opacity: 0, x: -20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.6 }}
-        className="absolute top-4 left-4 z-50"
-      >
-        <Link href="/">
-          <button className="bg-gray-800/80 backdrop-blur-sm hover:bg-gray-700/80 p-3 rounded-full border border-gray-700/50 transition-all duration-300 hover:scale-110">
-            <Home size={20} className="text-white" />
+    <div className="h-screen bg-gradient-to-br from-gray-900 via-blue-900/10 to-purple-900/10 overflow-hidden flex flex-col">
+      {/* Top Bar: Home Icon + Map Switcher */}
+      <div className="flex items-center justify-between px-8 pt-6 pb-2">
+        <motion.div
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.6 }}
+          className="z-50"
+        >
+          <Link href="/">
+            <button className="bg-gray-800/80 backdrop-blur-sm hover:bg-gray-700/80 p-3 rounded-full border border-gray-700/50 transition-all duration-300 hover:scale-110">
+              <Home size={20} className="text-white" />
+            </button>
+          </Link>
+        </motion.div>
+        {/* Map Navigation */}
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setCurrentMapView(0)}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-all duration-300 ${
+              currentMapView === 0
+                ? "bg-blue-600 text-white border-blue-400 shadow"
+                : "bg-gray-900/80 text-gray-200 border-gray-700 hover:bg-gray-800"
+            }`}
+          >
+            Heatmap
           </button>
-        </Link>
-      </motion.div>
+          <button
+            onClick={() => setCurrentMapView(1)}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-all duration-300 ${
+              currentMapView === 1
+                ? "bg-blue-600 text-white border-blue-400 shadow"
+                : "bg-gray-900/80 text-gray-200 border-gray-700 hover:bg-gray-800"
+            }`}
+          >
+            Normal
+          </button>
+        </div>
+      </div>
 
-      {/* Main Content */}
-      <div className="h-full flex">
+      {/* Main Content: Camera Feeds + Map/Controls */}
+      <div className="flex flex-1 px-6 pb-6 gap-6 min-h-0">
         {/* Left Side - Camera Feeds */}
         <motion.div
           initial={{ opacity: 0, x: -50 }}
           animate={{ opacity: isLoaded ? 1 : 0, x: isLoaded ? 0 : -50 }}
           transition={{ duration: 0.8, delay: 0.2 }}
-          className="w-1/2 p-6 pr-3"
+          className="w-1/2 flex flex-col min-h-0"
         >
-          <h2 className="text-2xl font-bold text-blue-400 mb-6 flex items-center space-x-2">
-            <Camera size={24} />
-            <span>Live Camera Feeds</span>
-          </h2>
-
-          <div className="grid grid-cols-2 gap-4 h-[calc(100vh-120px)]">
+          <div className="grid grid-cols-2 gap-4 flex-1 min-h-0">
             {cameraFeeds.map((feed, index) => (
               <motion.div
                 key={feed.id}
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: isLoaded ? 1 : 0, scale: isLoaded ? 1 : 0.8 }}
                 transition={{ duration: 0.6, delay: 0.4 + index * 0.1 }}
-                className="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/50 overflow-hidden relative group hover:border-blue-500/50 transition-all duration-300"
+                className="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/50 overflow-hidden relative group hover:border-blue-500/50 transition-all duration-300 flex flex-col"
               >
                 {/* Camera Feed Placeholder */}
-                <div className="aspect-video bg-gradient-to-br from-gray-700 to-gray-800 relative">
+                <div className="aspect-video bg-gradient-to-br from-gray-700 to-gray-800 relative flex-1 flex flex-col justify-center">
                   <div className="absolute inset-0 shimmer opacity-20"></div>
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="text-center">
@@ -72,14 +92,12 @@ export default function DashboardPage() {
                       <p className="text-gray-400 text-sm">Camera {feed.id}</p>
                     </div>
                   </div>
-
                   {/* Status Indicator */}
                   <div className="absolute top-3 right-3 flex items-center space-x-2">
                     <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                     <span className="text-xs text-green-400 bg-black/50 px-2 py-1 rounded">LIVE</span>
                   </div>
                 </div>
-
                 {/* Feed Info */}
                 <div className="p-3">
                   <h3 className="font-semibold text-white">{feed.name}</h3>
@@ -95,48 +113,17 @@ export default function DashboardPage() {
           initial={{ opacity: 0, x: 50 }}
           animate={{ opacity: isLoaded ? 1 : 0, x: isLoaded ? 0 : 50 }}
           transition={{ duration: 0.8, delay: 0.4 }}
-          className="w-1/2 p-6 pl-3 flex flex-col"
+          className="w-1/2 flex flex-col min-h-0"
         >
           {/* Map Section */}
-          <div className="flex-1 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-blue-400 flex items-center space-x-2">
-                <Brain size={24} />
-                <span>Crowd Analysis</span>
-              </h2>
-
-              {/* Map Navigation */}
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setCurrentMapView(0)}
-                  className={`px-3 py-1 rounded-lg text-sm transition-all duration-300 ${
-                    currentMapView === 0
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-700/50 text-gray-300 hover:bg-gray-600/50"
-                  }`}
-                >
-                  Heatmap
-                </button>
-                <button
-                  onClick={() => setCurrentMapView(1)}
-                  className={`px-3 py-1 rounded-lg text-sm transition-all duration-300 ${
-                    currentMapView === 1
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-700/50 text-gray-300 hover:bg-gray-600/50"
-                  }`}
-                >
-                  Normal
-                </button>
-              </div>
-            </div>
-
+          <div className="flex-1 mb-4 min-h-0 flex flex-col justify-center">
             {/* Map Display */}
             <motion.div
               key={currentMapView}
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.4 }}
-              className="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/50 h-[60vh] relative overflow-hidden"
+              className="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/50 h-[52vh] relative overflow-hidden flex flex-col justify-center"
             >
               <div className="absolute inset-0 shimmer opacity-10"></div>
               <div className="absolute inset-0 flex items-center justify-center">
