@@ -1,0 +1,66 @@
+**/checkpoints/
+
+# Large model files (>100MB)
+*.weights
+*_weights.npy
+data/yolov4.weights
+data/yolov4-tiny.weights
+data/yolov3.weights
+data/yolov3-tiny.weights
+exported_models/weights_only/yolov4_weights.npy
+simple_deployment/weights/yolov4_weights.npy
+
+# Large video files (>10MB)
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.wmv
+*.flv
+data/video/
+outputs/
+data/test_*.mp4
+data/test_*.mkv
+outputs/op_*.mp4
+
+# Large model data files
+model_data/*.pb
+*.pb
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
