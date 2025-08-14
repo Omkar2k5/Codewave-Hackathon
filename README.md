@@ -28,6 +28,7 @@ Drishti is an intelligent system designed to detect, prevent, and manage stamped
 - @PathanWasim  
 - @Omkar2k5
 - @shivpratapmithapalli
+- @amanshaikh69
 
 
 ## 📄 License
