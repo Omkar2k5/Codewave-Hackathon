@@ -9,6 +9,7 @@ import {
   Cloud,
   BarChart3,
   Monitor,
+  ArrowRight,
 } from "lucide-react";
 import Link from "next/link";
 import { useRef, useEffect, useState } from "react";
@@ -212,10 +213,10 @@ export default function WorkingPage() {
     const isLeft = index % 2 === 0;
 
     return {
-      // Only fade in, no fade out - cards stay visible once shown
-      opacity: useTransform(progress, [0, 0.5], [0, 1]),
-      x: useTransform(progress, [0, 0.5], [isLeft ? -200 : 200, 0]),
-      scale: useTransform(progress, [0, 0.5], [0.8, 1]),
+      // First card is always visible, others fade in with scroll
+      opacity: index === 0 ? 1 : useTransform(progress, [0, 0.5], [0, 1]),
+      x: index === 0 ? 0 : useTransform(progress, [0, 0.5], [isLeft ? -200 : 200, 0]),
+      scale: index === 0 ? 1 : useTransform(progress, [0, 0.5], [0.8, 1]),
     };
   });
 
@@ -265,14 +266,14 @@ export default function WorkingPage() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.8, delay: 0.6 }}
-          className="mb-16 relative"
+          className="relative"
         >
-          <h2 className="text-3xl font-bold text-center mb-16 text-blue-400">
-            Data Pipeline
-          </h2>
+            <h2 className="text-3xl font-bold text-center mb-8 text-blue-400">
+              Data Pipeline
+            </h2>
 
-          {/* Pipeline Container - reduced height for minimal spacing */}
-          <div className="relative min-h-[400vh] overflow-hidden">
+            {/* Pipeline Container - restored height to prevent overlap */}
+           <div className="min-h-[400vh] overflow-hidden">
             {/* Animated Path */}
             {windowWidth > 0 && (
               <svg
@@ -280,22 +281,8 @@ export default function WorkingPage() {
                 style={{ zIndex: 1 }}
               >
                 <defs>
-                  <linearGradient
-                    id="pathGradient"
-                    x1="0%"
-                    y1="0%"
-                    x2="100%"
-                    y2="100%"
-                  >
-                    <stop offset="0%" stopColor="#10b981" stopOpacity="0.9" />
-                    <stop offset="20%" stopColor="#3b82f6" stopOpacity="0.8" />
-                    <stop offset="40%" stopColor="#8b5cf6" stopOpacity="0.8" />
-                    <stop offset="60%" stopColor="#6366f1" stopOpacity="0.8" />
-                    <stop offset="80%" stopColor="#f97316" stopOpacity="0.8" />
-                    <stop offset="100%" stopColor="#ec4899" stopOpacity="0.9" />
-                  </linearGradient>
                   <filter id="glow">
-                    <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+                    <feGaussianBlur stdDeviation="2" result="coloredBlur" />
                     <feMerge>
                       <feMergeNode in="coloredBlur" />
                       <feMergeNode in="SourceGraphic" />
@@ -312,9 +299,13 @@ export default function WorkingPage() {
                   const cardHeight = 280; // Approximate card height
                   const margin = 80;
 
-                  // Calculate positions for each block (centered in viewport)
-                  const currentBlockY = viewportHeight * (0.5 + index * 0.6); // Reduced spacing
-                  const nextBlockY = viewportHeight * (0.5 + (index + 1) * 0.6);
+                                     // Calculate positions for each block (centered in viewport)
+                   const currentBlockY = index === 0
+                     ? viewportHeight * 0.35
+                     : viewportHeight * (0.5 + index * 0.6);
+                   const nextBlockY = index === 0
+                     ? viewportHeight * (0.5 + 1 * 0.6)
+                     : viewportHeight * (0.5 + (index + 1) * 0.6);
 
                   const isCurrentLeft = index % 2 === 0;
                   const isNextLeft = (index + 1) % 2 === 0;
@@ -351,20 +342,21 @@ export default function WorkingPage() {
                     <g key={index}>
                       <motion.path
                         d={pathData}
-                        stroke="url(#pathGradient)"
-                        strokeWidth="4"
+                        stroke="white"
+                        strokeWidth="3"
                         fill="none"
                         filter="url(#glow)"
                         style={{
                           pathLength: progress,
                         }}
                         strokeLinecap="round"
-                        strokeDasharray="0 1"
+                        strokeDasharray="8 8"
+                        opacity="0.7"
                       />
                       {/* Animated dot following the path */}
                       <motion.circle
-                        r="6"
-                        fill="url(#pathGradient)"
+                        r="4"
+                        fill="white"
                         filter="url(#glow)"
                         style={{
                           offsetDistance: progress,
@@ -383,9 +375,11 @@ export default function WorkingPage() {
               const Icon = step.icon;
               const transforms = stepTransforms[index];
 
-              // Position blocks to be centered in viewport when visible
-              const isLeft = index % 2 === 0;
-              const topPosition = viewportHeight * (0.5 + index * 0.6) - 140; // Center in viewport with reduced spacing
+                             // Position blocks to be centered in viewport when visible
+               const isLeft = index % 2 === 0;
+               const topPosition = (index === 0
+                 ? viewportHeight * 0.35
+                 : viewportHeight * (0.5 + index * 0.6)) - 140; // First block closer, others original spacing
 
               // Position blocks on alternating sides - ensure they stay within viewport
               const cardWidth = 384;
@@ -451,26 +445,11 @@ export default function WorkingPage() {
                     </div>
 
                     {/* Description */}
-                    <p className="text-gray-300 leading-relaxed text-lg mb-6">
+                    <p className="text-gray-300 leading-relaxed text-lg mb-6 text-center">
                       {step.description}
                     </p>
 
-                    {/* Status indicator */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <div
-                          className={`w-3 h-3 bg-gradient-to-r ${step.color} rounded-full animate-pulse`}
-                        ></div>
-                        <span className="text-sm text-gray-400">
-                          Processing
-                        </span>
-                      </div>
-                      <div className="text-sm text-blue-400 font-semibold">
-                        {index < workflowSteps.length - 1
-                          ? "→ Next Step"
-                          : "✓ Complete"}
-                      </div>
-                    </div>
+
                   </motion.div>
                 </motion.div>
               );
@@ -483,66 +462,168 @@ export default function WorkingPage() {
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 1.4 }}
-          className="bg-gray-800/30 backdrop-blur-sm rounded-2xl p-8 border border-gray-700/50 mb-12"
+                     className="relative bg-gray-900/90 backdrop-blur-xl rounded-3xl p-8 border border-gray-700/40 hover:border-blue-400/60 transition-all duration-500 shadow-2xl mb-8"
         >
-          <h2 className="text-2xl font-bold text-center mb-6 text-blue-400">
+          {/* Glowing background effect */}
+          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-purple-500/5 rounded-3xl" />
+          <h2 className="text-2xl font-bold text-center mb-8 text-blue-400">
             Key Technical Features
           </h2>
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
-                <p className="text-gray-300">
-                  Real-time processing with sub-second latency
-                </p>
-              </div>
-              <div className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-purple-500 rounded-full mt-2"></div>
-                <p className="text-gray-300">
-                  Multi-camera feed synchronization via Kafka
-                </p>
-              </div>
-              <div className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-green-500 rounded-full mt-2"></div>
-                <p className="text-gray-300">
-                  Advanced clustering algorithms for crowd analysis
-                </p>
-              </div>
+          
+          {/* Infinite Scrolling Features */}
+          <div className="space-y-8">
+            {/* First Row - Moving Left to Right */}
+            <div className="relative overflow-hidden">
+              <motion.div
+                className="flex space-x-6"
+                animate={{
+                  x: [0, -1000],
+                }}
+                transition={{
+                  duration: 20,
+                  repeat: Infinity,
+                  ease: "linear",
+                }}
+              >
+                {/* Repeat the features 3 times for seamless loop */}
+                {[...Array(3)].map((_, repeatIndex) => (
+                  <div key={`row1-${repeatIndex}`} className="flex space-x-6">
+                    {[
+                      {
+                        color: "from-blue-500 to-cyan-500",
+                        title: "Real-time Processing",
+                        description: "Sub-second latency processing",
+                        icon: "⚡"
+                      },
+                      {
+                        color: "from-purple-500 to-pink-500",
+                        title: "Multi-camera Sync",
+                        description: "Kafka-based synchronization",
+                        icon: "📹"
+                      },
+                      {
+                        color: "from-green-500 to-emerald-500",
+                        title: "Advanced Clustering",
+                        description: "Crowd pattern analysis",
+                        icon: "🔍"
+                      }
+                    ].map((feature, index) => (
+                      <motion.div
+                        key={`feature1-${repeatIndex}-${index}`}
+                        className="relative bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700/40 hover:border-blue-400/60 transition-all duration-300 shadow-lg min-w-[280px]"
+                        whileHover={{
+                          scale: 1.05,
+                          boxShadow: "0 20px 40px -12px rgba(0, 0, 0, 0.4)",
+                        }}
+                      >
+                        {/* Glowing background effect */}
+                        <div className={`absolute inset-0 bg-gradient-to-br ${feature.color} opacity-5 rounded-2xl`} />
+                        
+                        <div className="relative">
+                          <div className="flex items-center mb-4">
+                            <div className={`w-12 h-12 bg-gradient-to-br ${feature.color} rounded-xl flex items-center justify-center mr-4 text-2xl`}>
+                              {feature.icon}
+                            </div>
+                            <h3 className="text-lg font-semibold text-white">
+                              {feature.title}
+                            </h3>
+                          </div>
+                          <p className="text-gray-300 text-sm">
+                            {feature.description}
+                          </p>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                ))}
+              </motion.div>
             </div>
-            <div className="space-y-4">
-              <div className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-orange-500 rounded-full mt-2"></div>
-                <p className="text-gray-300">
-                  Dynamic heatmap generation and visualization
-                </p>
-              </div>
-              <div className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-pink-500 rounded-full mt-2"></div>
-                <p className="text-gray-300">
-                  Intelligent route optimization algorithms
-                </p>
-              </div>
-              <div className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-cyan-500 rounded-full mt-2"></div>
-                <p className="text-gray-300">
-                  Scalable architecture for large-scale deployments
-                </p>
-              </div>
+
+            {/* Second Row - Moving Right to Left */}
+            <div className="relative overflow-hidden">
+              <motion.div
+                className="flex space-x-6"
+                animate={{
+                  x: [-1000, 0],
+                }}
+                transition={{
+                  duration: 25,
+                  repeat: Infinity,
+                  ease: "linear",
+                }}
+              >
+                {/* Repeat the features 3 times for seamless loop */}
+                {[...Array(3)].map((_, repeatIndex) => (
+                  <div key={`row2-${repeatIndex}`} className="flex space-x-6">
+                    {[
+                      {
+                        color: "from-orange-500 to-red-500",
+                        title: "Heatmap Generation",
+                        description: "Dynamic visualization",
+                        icon: "🗺️"
+                      },
+                      {
+                        color: "from-pink-500 to-rose-500",
+                        title: "Route Optimization",
+                        description: "Smart escape routes",
+                        icon: "🛣️"
+                      },
+                      {
+                        color: "from-cyan-500 to-blue-500",
+                        title: "Scalable Architecture",
+                        description: "Large-scale deployments",
+                        icon: "🏗️"
+                      }
+                    ].map((feature, index) => (
+                      <motion.div
+                        key={`feature2-${repeatIndex}-${index}`}
+                        className="relative bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700/40 hover:border-blue-400/60 transition-all duration-300 shadow-lg min-w-[280px]"
+                        whileHover={{
+                          scale: 1.05,
+                          boxShadow: "0 20px 40px -12px rgba(0, 0, 0, 0.4)",
+                        }}
+                      >
+                        {/* Glowing background effect */}
+                        <div className={`absolute inset-0 bg-gradient-to-br ${feature.color} opacity-5 rounded-2xl`} />
+                        
+                        <div className="relative">
+                          <div className="flex items-center mb-4">
+                            <div className={`w-12 h-12 bg-gradient-to-br ${feature.color} rounded-xl flex items-center justify-center mr-4 text-2xl`}>
+                              {feature.icon}
+                            </div>
+                            <h3 className="text-lg font-semibold text-white">
+                              {feature.title}
+                            </h3>
+                          </div>
+                          <p className="text-gray-300 text-sm">
+                            {feature.description}
+                          </p>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                ))}
+              </motion.div>
             </div>
           </div>
         </motion.div>
 
         {/* CTA */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 1.6 }}
-          className="text-center"
-        >
+                 <motion.div
+           initial={{ opacity: 0, y: 20 }}
+           animate={{ opacity: 1, y: 0 }}
+           transition={{ duration: 0.8, delay: 1.6 }}
+           className="flex justify-center"
+         >
           <Link href="/dashboard">
-            <button className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 px-8 py-4 rounded-full text-lg font-semibold transition-all duration-300 transform hover:scale-105 hover:shadow-2xl">
-              View Live Dashboard
-            </button>
+            <motion.button
+              className="group relative px-6 md:px-10 py-3 md:py-4 bg-gradient-to-r from-blue-500/20 via-purple-500/20 to-blue-600/20 backdrop-blur-sm border border-blue-400/30 text-blue-300 font-semibold rounded-xl hover:bg-gradient-to-r hover:from-blue-500/30 hover:via-purple-500/30 hover:to-blue-600/30 hover:border-blue-400/50 hover:text-white transition-all duration-500 flex items-center gap-2 md:gap-3 shadow-lg hover:shadow-blue-500/25"
+              whileHover={{ scale: 1.02, y: -2 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <span className="text-sm md:text-base">View Live Dashboard</span>
+              <ArrowRight className="w-4 h-4 md:w-5 md:h-5 group-hover:translate-x-1 transition-transform duration-300" />
+            </motion.button>
           </Link>
         </motion.div>
       </div>
