@@ -88,40 +88,80 @@ export default function LandingPage() {
   return (
     <div className="relative min-h-screen pb-32">
       {/* Hero Section */}
-      <div className="relative z-20 min-h-screen flex items-center justify-center pt-20">
-        <div className="w-full max-w-7xl px-6 lg:px-8 text-center">
-          <div className="mb-6">
-            <SplitText
-              text="Drishti"
-              className="text-6xl md:text-8xl font-bold text-blue-400"
-              splitType="chars"
-              delay={150}
-              duration={0.8}
-              ease="power3.out"
-              from={{ opacity: 0, y: 60 }}
-              to={{ opacity: 1, y: 0 }}
-              textAlign="center"
-            />
+      <div className="relative z-20 min-h-screen flex flex-col pt-20">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="w-full max-w-7xl px-6 lg:px-8 text-center">
+            <div className="mb-6">
+              <SplitText
+                text="Drishti"
+                className="text-6xl md:text-8xl font-bold text-blue-400"
+                splitType="chars"
+                delay={150}
+                duration={0.8}
+                ease="power3.out"
+                from={{ opacity: 0, y: 60 }}
+                to={{ opacity: 1, y: 0 }}
+                textAlign="center"
+              />
+            </div>
+            <div className="max-w-3xl mx-auto mb-8">
+              <SplitText
+                text="Revolutionizing crowd management in India through real-time AI detection, intelligent analysis, and proactive safety measures"
+                className="text-xl md:text-2xl text-gray-300 leading-relaxed"
+                splitType="words"
+                delay={80}
+                duration={0.6}
+                ease="power2.out"
+                from={{ opacity: 0, y: 30 }}
+                to={{ opacity: 1, y: 0 }}
+                textAlign="center"
+              />
+            </div>
           </div>
-          <div className="max-w-3xl mx-auto mb-8">
-            <SplitText
-              text="Revolutionizing crowd management in India through real-time AI detection, intelligent analysis, and proactive safety measures"
-              className="text-xl md:text-2xl text-gray-300 leading-relaxed"
-              splitType="words"
-              delay={80}
-              duration={0.6}
-              ease="power2.out"
-              from={{ opacity: 0, y: 30 }}
-              to={{ opacity: 1, y: 0 }}
-              textAlign="center"
-            />
-          </div>
+        </div>
+
+        {/* Dive Deeper Button - Positioned at bottom of hero */}
+        <div className="flex justify-center pb-8 md:pb-12">
+          <motion.button
+            onClick={() => {
+              const problemSection = document.querySelector(
+                ".horizontal-slides-section"
+              );
+              problemSection?.scrollIntoView({ behavior: "smooth" });
+            }}
+            className="group relative px-6 md:px-10 py-3 md:py-4 bg-gradient-to-r from-blue-500/20 via-purple-500/20 to-blue-600/20 backdrop-blur-sm border border-blue-400/30 text-blue-300 font-semibold rounded-xl hover:bg-gradient-to-r hover:from-blue-500/30 hover:via-purple-500/30 hover:to-blue-600/30 hover:border-blue-400/50 hover:text-white transition-all duration-500 flex items-center gap-2 md:gap-3 shadow-lg hover:shadow-blue-500/25"
+            whileHover={{ scale: 1.02, y: -2 }}
+            whileTap={{ scale: 0.98 }}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 2, duration: 0.6 }}
+          >
+            <span className="text-sm md:text-base">Dive Deeper</span>
+            <ArrowRight className="w-4 h-4 md:w-5 md:h-5 group-hover:translate-x-1 transition-transform duration-300" />
+          </motion.button>
         </div>
       </div>
 
       {/* Problem Statement Horizontal Slides */}
-      <div className="relative z-20">
+      <div className="relative z-20 horizontal-slides-section">
         <HorizontalSlides slides={problemSlides} />
+      </div>
+
+      {/* Explore Working Button */}
+      <div className="relative z-20 flex justify-center mt-6 md:mt-8 mb-4 md:mb-6">
+        <Link href="/working">
+          <motion.button
+            className="group relative px-6 md:px-10 py-3 md:py-4 bg-gradient-to-r from-blue-500/20 via-purple-500/20 to-blue-600/20 backdrop-blur-sm border border-blue-400/30 text-blue-300 font-semibold rounded-xl hover:bg-gradient-to-r hover:from-blue-500/30 hover:via-purple-500/30 hover:to-blue-600/30 hover:border-blue-400/50 hover:text-white transition-all duration-500 flex items-center gap-2 md:gap-3 shadow-lg hover:shadow-blue-500/25"
+            whileHover={{ scale: 1.02, y: -2 }}
+            whileTap={{ scale: 0.98 }}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 1.5, duration: 0.6 }}
+          >
+            <span className="text-sm md:text-base">Explore Working</span>
+            <ArrowRight className="w-4 h-4 md:w-5 md:h-5 group-hover:translate-x-1 transition-transform duration-300" />
+          </motion.button>
+        </Link>
       </div>
     </div>
   );

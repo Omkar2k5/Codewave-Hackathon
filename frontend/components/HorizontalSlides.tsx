@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect } from "react";
 import { motion, useScroll, useTransform } from "framer-motion";
+import { ArrowRight, ArrowDown } from "lucide-react";
 import Image from "next/image";
 
 interface Slide {
@@ -24,6 +25,7 @@ export default function HorizontalSlides({
 }: HorizontalSlidesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [hasScrolledPast, setHasScrolledPast] = useState(false);
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
@@ -41,6 +43,58 @@ export default function HorizontalSlides({
     return unsubscribe;
   }, [scrollYProgress, slides.length]);
 
+  // Check if user has scrolled near the end of the page
+  useEffect(() => {
+    const checkScrollPosition = () => {
+      const scrollTop = window.scrollY;
+      const windowHeight = window.innerHeight;
+      const documentHeight = document.documentElement.scrollHeight;
+
+      // Hide button when user is within 200px of the bottom of the page
+      const distanceFromBottom = documentHeight - (scrollTop + windowHeight);
+      setHasScrolledPast(distanceFromBottom < 200);
+    };
+
+    // Check on mount
+    checkScrollPosition();
+
+    // Check on scroll
+    window.addEventListener("scroll", checkScrollPosition);
+    window.addEventListener("resize", checkScrollPosition);
+
+    return () => {
+      window.removeEventListener("scroll", checkScrollPosition);
+      window.removeEventListener("resize", checkScrollPosition);
+    };
+  }, []);
+
+  // Function to scroll to next slide or to explore working button
+  const handleNavigation = () => {
+    if (currentSlide < slides.length - 1 && containerRef.current) {
+      // Navigate to next slide
+      const containerTop =
+        containerRef.current.getBoundingClientRect().top + window.scrollY;
+      const nextSlidePosition =
+        containerTop + (currentSlide + 1) * window.innerHeight;
+
+      window.scrollTo({
+        top: nextSlidePosition,
+        behavior: "smooth",
+      });
+    } else {
+      // On last slide, scroll to the explore working button
+      if (containerRef.current) {
+        const containerBottom =
+          containerRef.current.getBoundingClientRect().bottom + window.scrollY;
+        // Scroll to show the explore working button (add some offset for better visibility)
+        window.scrollTo({
+          top: containerBottom - window.innerHeight * 0.3,
+          behavior: "smooth",
+        });
+      }
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -48,6 +102,31 @@ export default function HorizontalSlides({
       style={{ height: `${slides.length * 100}vh` }}
     >
       <div className="sticky top-0 h-screen overflow-hidden">
+        {/* Navigation Button - Hide when scrolled past slides */}
+        {!hasScrolledPast && (
+          <div className="absolute right-6 md:right-8 bottom-6 md:bottom-8 z-30">
+            <motion.button
+              onClick={handleNavigation}
+              className="group relative p-3 md:p-4 bg-gradient-to-r from-blue-500/20 via-purple-500/20 to-blue-600/20 backdrop-blur-sm border border-blue-400/30 text-blue-300 font-semibold rounded-full hover:bg-gradient-to-r hover:from-blue-500/30 hover:via-purple-500/30 hover:to-blue-600/30 hover:border-blue-400/50 hover:text-white transition-all duration-500 shadow-lg hover:shadow-blue-500/25"
+              whileHover={{
+                scale: 1.1,
+                x: currentSlide < slides.length - 1 ? 2 : 0,
+                y: currentSlide < slides.length - 1 ? 0 : 2,
+              }}
+              whileTap={{ scale: 0.95 }}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              transition={{ delay: 1, duration: 0.6 }}
+            >
+              {currentSlide < slides.length - 1 ? (
+                <ArrowRight className="w-5 h-5 md:w-6 md:h-6" />
+              ) : (
+                <ArrowDown className="w-5 h-5 md:w-6 md:h-6" />
+              )}
+            </motion.button>
+          </div>
+        )}
         {slides.map((slide, index) => {
           const isActive = index === currentSlide;
           const isPrev = index < currentSlide;
