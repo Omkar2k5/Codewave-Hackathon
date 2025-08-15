@@ -16,7 +16,7 @@ interface SplitTextProps {
   to?: { opacity: number; y: number };
   threshold?: number;
   rootMargin?: string;
-  textAlign?: string;
+  textAlign?: "left" | "right" | "center" | "justify" | "start" | "end";
   onLetterAnimationComplete?: () => void;
 }
 
@@ -34,15 +34,15 @@ const SplitText: React.FC<SplitTextProps> = ({
   textAlign = "center",
   onLetterAnimationComplete,
 }) => {
-  const ref = useRef(null);
+  const ref = useRef<HTMLParagraphElement>(null);
   const animationCompletedRef = useRef(false);
-  const scrollTriggerRef = useRef(null);
+  const scrollTriggerRef = useRef<ScrollTrigger | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined" || !ref.current || !text) return;
 
     const el = ref.current;
-    
+
     animationCompletedRef.current = false;
 
     const absoluteLines = splitType === "lines";
@@ -82,14 +82,19 @@ const SplitText: React.FC<SplitTextProps> = ({
     }
 
     targets.forEach((t) => {
-      t.style.willChange = "transform, opacity";
+      if (t instanceof HTMLElement) {
+        t.style.willChange = "transform, opacity";
+      }
     });
 
     const startPct = (1 - threshold) * 100;
     const marginMatch = /^(-?\d+(?:\.\d+)?)(px|em|rem|%)?$/.exec(rootMargin);
     const marginValue = marginMatch ? parseFloat(marginMatch[1]) : 0;
-    const marginUnit = marginMatch ? (marginMatch[2] || "px") : "px";
-    const sign = marginValue < 0 ? `-=${Math.abs(marginValue)}${marginUnit}` : `+=${marginValue}${marginUnit}`;
+    const marginUnit = marginMatch ? marginMatch[2] || "px" : "px";
+    const sign =
+      marginValue < 0
+        ? `-=${Math.abs(marginValue)}${marginUnit}`
+        : `+=${marginValue}${marginUnit}`;
     const start = `top ${startPct}%${sign}`;
 
     const tl = gsap.timeline({
@@ -161,4 +166,4 @@ const SplitText: React.FC<SplitTextProps> = ({
   );
 };
 
-export default SplitText; 
+export default SplitText;
