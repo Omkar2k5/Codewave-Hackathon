@@ -27,6 +27,15 @@
 /backend/exported_models/crowd_detection_model.onnx
 /backend/exported_models/crowd_detection_model.torchscript
 
+# New web export models
+/backend/web_export_models/
+/backend/web_export_models/*.onnx
+/backend/web_export_models/*.torchscript
+/backend/web_export_models/*.zip
+/backend/web_export_models/crowd_detection_deployment_package.zip
+/backend/web_export_models/crowd_detection_model.onnx
+/backend/web_export_models/crowd_detection_model.torchscript
+
 # Large video files (>10MB)
 /backend/*.mp4
 /backend/*.avi
