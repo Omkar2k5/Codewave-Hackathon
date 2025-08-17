@@ -4,10 +4,10 @@ import type React from "react";
 
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Navbar from "@/components/navbar";
-import Footer from "@/components/footer";
+import { Navbar } from "../components/layout";
+import { Footer } from "../components/layout";
 import { usePathname } from "next/navigation";
-import DarkVeil from "@/components/DarkVeil";
+import { DarkVeil } from "../components/common";
 
 const inter = Inter({ subsets: ["latin"] });
 

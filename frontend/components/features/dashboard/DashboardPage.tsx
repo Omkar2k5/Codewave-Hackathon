@@ -4,10 +4,33 @@ import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Home, Route, Brain, Camera, Activity } from "lucide-react"
 import Link from "next/link"
+import CrowdMap from "@/components/features/crowd-monitoring/CrowdMap"
+
+// --- TYPES ---
+interface Camera {
+    id: string;
+    name: string;
+    lat: number;
+    lng: number;
+    status: string;
+    fov: number; // Field of view in degrees
+    direction: number; // Direction in degrees (0-360)
+    fovRadius: number; // FOV triangle radius in meters
+}
+
+interface CameraCoverageCircle {
+    center: { lat: number; lng: number };
+    radius: number;
+}
 
 export default function DashboardPage() {
   const [currentMapView, setCurrentMapView] = useState(1) // 0: heatmap, 1: escape routes (default)
   const [isLoaded, setIsLoaded] = useState(false)
+  const [cameraPlacementMode, setCameraPlacementMode] = useState(false)
+  
+  // Shared camera state between both map views
+  const [selectedCameraPositions, setSelectedCameraPositions] = useState<Camera[]>([])
+  const [cameraCoverageCircle, setCameraCoverageCircle] = useState<CameraCoverageCircle | null>(null)
 
   useEffect(() => {
     const timer = setTimeout(() => setIsLoaded(true), 500)
@@ -16,22 +39,52 @@ export default function DashboardPage() {
 
   const mapViews = ["Heatmap View", "Escape Routes"]
 
+  const openCameraPlacementMode = () => {
+    setCameraPlacementMode(true)
+  }
+
+  const closeCameraPlacementMode = () => {
+    setCameraPlacementMode(false)
+  }
+
+  const handleCameraPositionsUpdate = (cameras: Camera[]) => {
+    setSelectedCameraPositions(cameras)
+  }
+
+  const handleCameraCoverageUpdate = (coverage: CameraCoverageCircle | null) => {
+    setCameraCoverageCircle(coverage)
+  }
+
   return (
     <div className="h-screen bg-gradient-to-br from-gray-900 via-blue-900/10 to-purple-900/10 overflow-hidden flex flex-col">
-      {/* Top Bar: Home Icon + Map Switcher */}
+      {/* Top Bar: Home Icon + Place Cameras Button + Map Switcher */}
       <div className="flex items-center justify-between px-8 pt-6 pb-2">
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.6 }}
-          className="z-50"
+          className="z-50 flex items-center space-x-3"
         >
           <Link href="/">
             <button className="bg-gray-800/80 backdrop-blur-sm hover:bg-gray-700/80 p-3 rounded-full border border-gray-700/50 transition-all duration-300 hover:scale-110">
               <Home size={20} className="text-white" />
             </button>
           </Link>
+          
+                          {/* Place Cameras Button - Only show when in Escape Routes view */}
+                {currentMapView === 1 && (
+                  <motion.button
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.4, delay: 0.2 }}
+                    onClick={openCameraPlacementMode}
+                    className="bg-gray-800/80 backdrop-blur-sm hover:bg-gray-700/80 p-3 rounded-full border border-gray-700/50 transition-all duration-300 hover:scale-110"
+                  >
+                    <Camera size={20} />
+                  </motion.button>
+                )}
         </motion.div>
+        
         {/* Map Navigation */}
         <div className="flex items-center space-x-2">
           <button
@@ -136,28 +189,18 @@ export default function DashboardPage() {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.4 }}
-            className="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/50 flex-1 relative overflow-hidden flex flex-col justify-center"
+            className="bg-gray-800/40 backdrop-blur-sm rounded-xl border border-gray-700/50 flex-1 relative overflow-hidden"
           >
-            <div className="absolute inset-0 shimmer opacity-10"></div>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <div
-                  className={`w-20 h-20 rounded-full mx-auto mb-6 flex items-center justify-center ${
-                    currentMapView === 0
-                      ? "bg-gradient-to-br from-red-500 to-orange-500"
-                      : "bg-gradient-to-br from-blue-500 to-purple-500"
-                  }`}
-                >
-                  <Brain size={40} className="text-white" />
-                </div>
-                <h3 className="text-2xl font-semibold text-white mb-3">{mapViews[currentMapView]}</h3>
-                <p className="text-gray-400 text-base max-w-md mx-auto">
-                  {currentMapView === 0
-                    ? "Real-time crowd density visualization with heat mapping"
-                    : "Standard venue layout with crowd markers and traffic flow"}
-                </p>
-              </div>
-            </div>
+            {/* Both views now use the CrowdMap component with different mapType props */}
+            <CrowdMap 
+              cameraPlacementMode={cameraPlacementMode}
+              onCloseCameraPlacementMode={closeCameraPlacementMode}
+              mapType={currentMapView === 0 ? 'heatmap' : 'escape-routes'}
+              selectedCameraPositions={selectedCameraPositions}
+              onCameraPositionsUpdate={handleCameraPositionsUpdate}
+              cameraCoverageCircle={cameraCoverageCircle}
+              onCameraCoverageUpdate={handleCameraCoverageUpdate}
+            />
           </motion.div>
         </motion.div>
       </div>

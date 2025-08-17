@@ -11,8 +11,7 @@ import {
   Users2,
 } from "lucide-react";
 import Link from "next/link";
-import HorizontalSlides from "./HorizontalSlides";
-import SplitText from "./SplitText";
+import { HorizontalSlides, SplitText } from "@/components/common";
 
 export default function LandingPage() {
   const problemSlides = [
