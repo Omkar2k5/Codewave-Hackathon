@@ -116,7 +116,7 @@
 /frontend/.pnpm-debug.log*
 
 # env files
-/frontend/.env*
+.env
 
 # vercel
 /frontend/.vercel

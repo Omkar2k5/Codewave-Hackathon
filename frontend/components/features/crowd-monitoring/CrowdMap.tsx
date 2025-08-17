@@ -1,5 +1,4 @@
 "use client"
-
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     GoogleMap,
@@ -197,7 +196,7 @@ export default function CrowdMap({
     // --- GOOGLE MAPS API LOADER ---
     const { isLoaded } = useJsApiLoader({
         id: 'google-map-script',
-        googleMapsApiKey: "AIzaSyA_sHaZiCurw9zPjUIBcmtuYrte90UHX-g", // Replace with your API key
+        googleMapsApiKey: process.env.GOOGLE_API_KEY || "",
         libraries: ['visualization', 'geometry', 'places'],
     });
 
