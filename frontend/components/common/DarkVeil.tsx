@@ -82,10 +82,13 @@ export default function DarkVeil({
   warpAmount = 0,
   resolutionScale = 1,
 }) {
-  const ref = useRef(null);
+  const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
+    if (!canvas) return;
+
     const parent = canvas.parentElement;
+    if (!parent) return;
 
     const renderer = new Renderer({
       dpr: Math.min(window.devicePixelRatio, 2),
@@ -151,10 +154,5 @@ export default function DarkVeil({
     warpAmount,
     resolutionScale,
   ]);
-  return (
-    <canvas
-      ref={ref}
-      className="w-full h-full block"
-    />
-  );
+  return <canvas ref={ref} className="w-full h-full block" />;
 }
