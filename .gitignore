@@ -95,9 +95,6 @@
 "-files*"
 "e -i cf201b8"
 
-
-
-
 # FRONTEND FOLDER
 # dependencies
 /frontend/node_modules
@@ -117,6 +114,7 @@
 
 # env files
 .env
+/frontend/.env.local
 
 # vercel
 /frontend/.vercel

@@ -18,7 +18,6 @@ interface Camera {
     lat: number;
     lng: number;
     status: string;
-    fov: number; // Field of view in degrees
     direction: number; // Direction in degrees (0-360)
     fovRadius: number; // FOV triangle radius in meters
 }
@@ -48,6 +47,8 @@ interface FOVControlsProps {
     onClose: () => void;
 }
 
+// Inline FOV controls removed
+
 interface CrowdMapProps {
     cameraPlacementMode: boolean;
     onCloseCameraPlacementMode: () => void;
@@ -70,8 +71,10 @@ const center = {
 };
 
 // FOV triangle constants
-const DEFAULT_FOV = 90; // degrees
-const DEFAULT_FOV_RADIUS = 100; // meters
+const DEFAULT_FOV_DEGREES = 90; // Fixed FOV aperture used for triangle fan
+const DEFAULT_FOV_RADIUS = 20; // meters (within 10-50m requirement)
+const MIN_FOV_RADIUS = 10;
+const MAX_FOV_RADIUS = 50;
 const FOV_TRIANGLE_COLOR = '#4ECDC4';
 const FOV_TRIANGLE_BORDER_COLOR = '#ffffff';
 
@@ -187,16 +190,39 @@ export default function CrowdMap({
     
     // FOV triangles state
     const [fovTriangles, setFovTriangles] = useState<FOVTriangle[]>([]);
-    const [selectedFOVTriangle, setSelectedFOVTriangle] = useState<string | null>(null);
+    // Disable selecting triangles for rotation
+    const [selectedFOVTriangle] = useState<string | null>(null);
     
     // Shared zoom state for both maps
     const [sharedZoom, setSharedZoom] = useState(13);
     const [sharedCenter, setSharedCenter] = useState(center);
 
+    // Control visibility state - track which camera's controls are visible
+    const [visibleControls, setVisibleControls] = useState<Set<string>>(new Set());
+    
+    // Toggle control visibility for a specific camera
+    const toggleControlVisibility = useCallback((cameraId: string) => {
+        setVisibleControls(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(cameraId)) {
+                newSet.delete(cameraId);
+            } else {
+                newSet.add(cameraId);
+            }
+            return newSet;
+        });
+    }, []);
+    
+    // Close all controls
+    const closeAllControls = useCallback(() => {
+        setVisibleControls(new Set());
+    }, []);
+
     // --- GOOGLE MAPS API LOADER ---
+    const publicApiKey = (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "").trim();
     const { isLoaded } = useJsApiLoader({
         id: 'google-map-script',
-        googleMapsApiKey: process.env.GOOGLE_API_KEY || "",
+        googleMapsApiKey: publicApiKey,
         libraries: ['visualization', 'geometry', 'places'],
     });
 
@@ -205,12 +231,14 @@ export default function CrowdMap({
         if (!isLoaded) return [];
         
         const center = new window.google.maps.LatLng(camera.lat, camera.lng);
-        const halfFOV = camera.fov / 2;
+        const halfFOV = DEFAULT_FOV_DEGREES / 2;
         const startAngle = camera.direction - halfFOV;
         const endAngle = camera.direction + halfFOV;
         
         // Convert meters to degrees (approximate)
-        const radiusInDegrees = camera.fovRadius / 111000; // 1 degree ≈ 111km
+        // Clamp to allowed range 10–50 meters
+        const clampedRadiusMeters = Math.min(Math.max(camera.fovRadius, MIN_FOV_RADIUS), MAX_FOV_RADIUS);
+        const radiusInDegrees = clampedRadiusMeters / 111000; // 1 degree ≈ 111km
         
         const points: google.maps.LatLng[] = [center];
         
@@ -245,16 +273,15 @@ export default function CrowdMap({
         };
     }, [calculateFOVTriangle]);
 
-    // Update FOV triangles when cameras change
+    // Update FOV triangles when cameras change (only after Google Maps is loaded)
     useEffect(() => {
+        if (!isLoaded) return;
         const newTriangles = selectedCameraPositions.map(camera => createFOVTriangle(camera));
         setFovTriangles(newTriangles);
-    }, [selectedCameraPositions, createFOVTriangle]);
+    }, [isLoaded, selectedCameraPositions, createFOVTriangle]);
 
     // --- FOV INTERACTION HANDLERS ---
-    const onFOVTriangleClick = useCallback((cameraId: string) => {
-        setSelectedFOVTriangle(cameraId);
-    }, []);
+    // Triangle click disabled (no rotation/selection)
 
     const onFOVTriangleDragStart = useCallback((cameraId: string) => {
         updateFOVTriangle(cameraId, { isDragging: true });
@@ -275,17 +302,7 @@ export default function CrowdMap({
         onCameraPositionsUpdate(updatedCameras);
     }, [updateFOVTriangle, selectedCameraPositions, onCameraPositionsUpdate]);
 
-    const onFOVTriangleRotate = useCallback((cameraId: string, newRotation: number) => {
-        updateFOVTriangle(cameraId, { rotation: newRotation });
-        
-        // Update camera direction
-        const updatedCameras = selectedCameraPositions.map(camera => 
-            camera.id === cameraId 
-                ? { ...camera, direction: newRotation }
-                : camera
-        );
-        onCameraPositionsUpdate(updatedCameras);
-    }, [updateFOVTriangle, selectedCameraPositions, onCameraPositionsUpdate]);
+    // Rotation disabled
 
     const onFOVTriangleResize = useCallback((cameraId: string, newRadius: number) => {
         // Update camera FOV radius
@@ -298,25 +315,7 @@ export default function CrowdMap({
     }, [selectedCameraPositions, onCameraPositionsUpdate]);
 
     // Handle FOV triangle rotation via mouse events
-    const handleFOVRotation = useCallback((cameraId: string, event: google.maps.MapMouseEvent) => {
-        if (!event.latLng) return;
-        
-        const camera = selectedCameraPositions.find(cam => cam.id === cameraId);
-        if (!camera) return;
-        
-        const cameraLatLng = new window.google.maps.LatLng(camera.lat, camera.lng);
-        const clickLatLng = event.latLng;
-        
-        // Calculate angle between camera center and click point
-        const deltaLat = clickLatLng.lat() - cameraLatLng.lat();
-        const deltaLng = clickLatLng.lng() - cameraLatLng.lng();
-        const angle = Math.atan2(deltaLng, deltaLat) * 180 / Math.PI;
-        
-        // Convert to 0-360 range
-        const normalizedAngle = (angle + 360) % 360;
-        
-        onFOVTriangleRotate(cameraId, normalizedAngle);
-    }, [selectedCameraPositions, onFOVTriangleRotate]);
+    // Rotation disabled
 
     // --- DATA SIMULATION LOGIC ---
     const getCrowdLevel = (cameraName: string): { level: string; color: string } => {
@@ -350,13 +349,6 @@ export default function CrowdMap({
     // --- CAMERA PLACEMENT LOGIC ---
     const onCameraPlacementMapClick = (event: google.maps.MapMouseEvent) => {
         if (cameraPlacementMode && event.latLng) {
-            // Check if we're clicking on an existing FOV triangle for rotation
-            if (selectedFOVTriangle) {
-                handleFOVRotation(selectedFOVTriangle, event);
-                setSelectedFOVTriangle(null);
-                return;
-            }
-            
             // Otherwise, place a new camera
             const newCamera: Camera = {
                 id: `cam_${Date.now()}`,
@@ -364,7 +356,6 @@ export default function CrowdMap({
                 lat: event.latLng.lat(),
                 lng: event.latLng.lng(),
                 status: 'active',
-                fov: DEFAULT_FOV,
                 direction: 0,
                 fovRadius: DEFAULT_FOV_RADIUS
             };
@@ -476,36 +467,9 @@ export default function CrowdMap({
             
             switch (event.key) {
                 case 'Escape':
-                    if (selectedFOVTriangle) {
-                        setSelectedFOVTriangle(null);
-                    } else {
-                        onCloseCameraPlacementMode();
-                    }
+                    onCloseCameraPlacementMode();
                     break;
-                case 'r':
-                case 'R':
-                    if (selectedFOVTriangle) {
-                        // Reset camera direction to 0
-                        const updatedCameras = selectedCameraPositions.map(cam => 
-                            cam.id === selectedFOVTriangle 
-                                ? { ...cam, direction: 0 }
-                                : cam
-                        );
-                        onCameraPositionsUpdate(updatedCameras);
-                    }
-                    break;
-                case 'f':
-                case 'F':
-                    if (selectedFOVTriangle) {
-                        // Reset FOV radius to default
-                        const updatedCameras = selectedCameraPositions.map(cam => 
-                            cam.id === selectedFOVTriangle 
-                                ? { ...cam, fovRadius: DEFAULT_FOV_RADIUS }
-                                : cam
-                        );
-                        onCameraPositionsUpdate(updatedCameras);
-                    }
-                    break;
+                // Other shortcuts removed
             }
         };
 
@@ -513,7 +477,7 @@ export default function CrowdMap({
             document.addEventListener('keydown', handleKeyPress);
             return () => document.removeEventListener('keydown', handleKeyPress);
         }
-    }, [cameraPlacementMode, selectedFOVTriangle, selectedCameraPositions, onCameraPositionsUpdate, onCloseCameraPlacementMode]);
+    }, [cameraPlacementMode, onCloseCameraPlacementMode]);
 
     // Only zoom when exiting camera placement mode
     // useEffect(() => {
@@ -530,6 +494,17 @@ export default function CrowdMap({
     // }, [selectedCameraPositions.length, zoomToCameras]);
 
     // --- RENDER LOGIC ---
+    if (!publicApiKey) {
+        return (
+            <div className="flex justify-center items-center h-full bg-gray-800/40 text-white">
+                <div className="text-center space-y-2">
+                    <h2 className="text-lg font-semibold">Google Maps API key missing</h2>
+                    <p className="text-sm text-gray-300">Set <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> in your environment and enable billing + Maps JavaScript API.</p>
+                </div>
+            </div>
+        );
+    }
+
     if (!isLoaded) {
         return (
             <div className="flex justify-center items-center h-full bg-gray-800/40 text-white">
@@ -543,107 +518,17 @@ export default function CrowdMap({
         return (
             <div className="relative w-full h-full">
                 {/* Header */}
-                <div className="absolute top-3 left-3 z-10 bg-gray-800/95 backdrop-blur-sm p-4 rounded-lg shadow-lg max-w-xs border border-gray-600">
+                <div
+                    className="absolute top-3 left-3 z-10 bg-gray-900 p-4 rounded-lg shadow-lg max-w-xs border border-gray-600"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                >
                     <h3 className="text-lg font-semibold text-white mb-2">📹 Camera Placement Mode</h3>
                     <p className="text-sm text-gray-300 mb-3">
                         Click on the map to place cameras. Each click adds a new camera position.
                     </p>
                     
-                    {/* FOV Configuration */}
-                    <div className="mb-3 p-3 bg-gray-700 rounded border border-gray-600 max-h-96 overflow-y-auto">
-                        <h4 className="text-sm font-medium text-white mb-2">🔺 FOV Configuration</h4>
-                        
-                        {/* Rotation Mode Indicator */}
-                        {selectedFOVTriangle && (
-                            <div className="mb-3 p-2 bg-yellow-600/20 border border-yellow-500/50 rounded text-xs text-yellow-300">
-                                🎯 <strong>Rotation Mode Active</strong><br/>
-                                Click anywhere on the map to set camera direction
-                                <button
-                                    onClick={() => setSelectedFOVTriangle(null)}
-                                    className="ml-2 px-2 py-1 bg-yellow-600 hover:bg-yellow-700 text-white text-xs rounded transition-colors"
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-                        )}
-                        
-                        <div className="space-y-2">
-                            <div>
-                                <label className="text-xs text-gray-300 block">FOV Radius (meters)</label>
-                                <input
-                                    type="range"
-                                    min="50"
-                                    max="500"
-                                    defaultValue={DEFAULT_FOV_RADIUS}
-                                    className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
-                                    onChange={(e) => {
-                                        const newRadius = parseInt(e.target.value);
-                                        const updatedCameras = selectedCameraPositions.map(cam => ({
-                                            ...cam,
-                                            fovRadius: newRadius
-                                        }));
-                                        onCameraPositionsUpdate(updatedCameras);
-                                    }}
-                                />
-                                <span className="text-xs text-gray-400">{DEFAULT_FOV_RADIUS}m</span>
-                            </div>
-                            <div>
-                                <label className="text-xs text-gray-300 block">Default Direction (degrees)</label>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="360"
-                                    defaultValue="0"
-                                    className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
-                                    onChange={(e) => {
-                                        const newDirection = parseInt(e.target.value);
-                                        const updatedCameras = selectedCameraPositions.map(cam => ({
-                                            ...cam,
-                                            direction: newDirection
-                                        }));
-                                        onCameraPositionsUpdate(updatedCameras);
-                                    }}
-                                />
-                                <span className="text-xs text-gray-400">0°</span>
-                            </div>
-                        </div>
-                        
-                        {/* Legend */}
-                        <div className="mt-3 p-2 bg-gray-600 rounded text-xs text-gray-300">
-                            <div className="font-medium mb-2">🎨 Visual Legend:</div>
-                            <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-3 h-3 bg-teal-400 rounded-sm"></div>
-                                    <span>Normal FOV Triangle</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-3 h-3 bg-yellow-400 rounded-sm"></div>
-                                    <span>Selected FOV Triangle</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="w-3 h-3 bg-red-500 rounded-sm"></div>
-                                    <span>Camera Direction Line</span>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div className="mt-3 p-2 bg-gray-600 rounded text-xs text-gray-300">
-                            <div className="font-medium mb-1">🎯 Interaction Guide:</div>
-                            <div>• <strong>Click & Drag</strong> FOV triangle to move camera</div>
-                            <div>• <strong>Click FOV triangle</strong> to open inline controls</div>
-                            <div>• <strong>Use sliders</strong> to adjust radius & direction</div>
-                            <div>• <strong>Double-click</strong> camera marker for quick access</div>
-                            <div>• <strong>Inline controls</strong> appear above each camera</div>
-                        </div>
-                        
-                        {/* Keyboard Shortcuts */}
-                        <div className="mt-3 p-2 bg-gray-600 rounded text-xs text-gray-300">
-                            <div className="font-medium mb-1">⌨️ Keyboard Shortcuts:</div>
-                            <div>• <strong>ESC</strong> - Cancel rotation / Exit mode</div>
-                            <div>• <strong>R</strong> - Reset camera direction to 0°</div>
-                            <div>• <strong>F</strong> - Reset radius to {DEFAULT_FOV_RADIUS}m</div>
-                        </div>
-                    </div>
+                    {/* FOV configuration removed as requested */}
                     
                     {/* Inline FOV Controls - Now available directly on the map for each camera */}
 
@@ -658,7 +543,7 @@ export default function CrowdMap({
                                     <div className="text-sm text-gray-200">
                                         <div>{camera.name}</div>
                                         <div className="text-xs text-gray-400">
-                                            FOV: {camera.fov}° | Dir: {camera.direction}° | R: {camera.fovRadius}m
+                                            FOV: {DEFAULT_FOV_DEGREES}° | Dir: {camera.direction}° | R: {Math.min(Math.max(camera.fovRadius, MIN_FOV_RADIUS), MAX_FOV_RADIUS)}m
                                         </div>
                                     </div>
                                     <button 
@@ -704,7 +589,7 @@ export default function CrowdMap({
                             position={{ lat: camera.lat, lng: camera.lng }}
                             icon={createCameraIcon('#4ecdc4')}
                             title={camera.name}
-                            onDblClick={() => onFOVTriangleClick(camera.id)}
+                            onClick={() => toggleControlVisibility(camera.id)}
                         />
                     ))}
                     
@@ -714,15 +599,14 @@ export default function CrowdMap({
                             <PolygonF
                                 paths={triangle.points}
                                 options={{
-                                    fillColor: selectedFOVTriangle === triangle.cameraId ? '#FFD700' : FOV_TRIANGLE_COLOR,
-                                    fillOpacity: selectedFOVTriangle === triangle.cameraId ? 0.5 : 0.3,
-                                    strokeColor: selectedFOVTriangle === triangle.cameraId ? '#FFD700' : FOV_TRIANGLE_BORDER_COLOR,
-                                    strokeWeight: selectedFOVTriangle === triangle.cameraId ? 3 : 2,
-                                    strokeOpacity: selectedFOVTriangle === triangle.cameraId ? 1 : 0.8,
-                                    clickable: true,
+                                    fillColor: FOV_TRIANGLE_COLOR,
+                                    fillOpacity: 0.3,
+                                    strokeColor: FOV_TRIANGLE_BORDER_COLOR,
+                                    strokeWeight: 2,
+                                    strokeOpacity: 0.8,
+                                    clickable: false,
                                     draggable: true
                                 }}
-                                onClick={() => onFOVTriangleClick(triangle.cameraId)}
                                 onDragStart={() => onFOVTriangleDragStart(triangle.cameraId)}
                                 onDragEnd={(e) => {
                                     if (e.latLng) {
@@ -731,36 +615,10 @@ export default function CrowdMap({
                                 }}
                             />
                             
-                            {/* Direction indicator line */}
-                            {(() => {
-                                const camera = selectedCameraPositions.find(cam => cam.id === triangle.cameraId);
-                                if (!camera) return null;
-                                
-                                const center = new window.google.maps.LatLng(camera.lat, camera.lng);
-                                const directionRad = (camera.direction * Math.PI) / 180;
-                                const radiusInDegrees = camera.fovRadius / 111000;
-                                
-                                const endLat = center.lat() + radiusInDegrees * 0.7 * Math.cos(directionRad);
-                                const endLng = center.lng() + radiusInDegrees * 0.7 * Math.sin(directionRad);
-                                
-                                return (
-                                    <PolygonF
-                                        paths={[
-                                            center,
-                                            new window.google.maps.LatLng(endLat, endLng)
-                                        ]}
-                                        options={{
-                                            strokeColor: '#FF0000',
-                                            strokeWeight: 3,
-                                            strokeOpacity: 0.8,
-                                            fillOpacity: 0
-                                        }}
-                                    />
-                                );
-                            })()}
+                            {/* Direction indicator removed */}
                             
                             {/* Inline FOV Controls for each camera */}
-                            {(() => {
+                            {visibleControls.has(triangle.cameraId) && (() => {
                                 const camera = selectedCameraPositions.find(cam => cam.id === triangle.cameraId);
                                 if (!camera) return null;
                                 
@@ -769,13 +627,13 @@ export default function CrowdMap({
                                 const controlLng = camera.lng;
                                 
                                 return (
-                                                                         <OverlayViewF
-                                         position={{ lat: controlLat, lng: controlLng }}
-                                         mapPaneName="overlayMouseTarget"
-                                     >
+                                    <OverlayViewF
+                                        position={{ lat: controlLat, lng: controlLng }}
+                                        mapPaneName="overlayMouseTarget"
+                                    >
                                         <FOVControls
                                             camera={camera}
-                                            onUpdate={(updates) => {
+                                            onUpdate={(updates: Partial<Camera>) => {
                                                 const updatedCameras = selectedCameraPositions.map(cam => 
                                                     cam.id === camera.id 
                                                         ? { ...cam, ...updates }
@@ -783,7 +641,7 @@ export default function CrowdMap({
                                                 );
                                                 onCameraPositionsUpdate(updatedCameras);
                                             }}
-                                            onClose={() => setSelectedFOVTriangle(null)}
+                                            onClose={() => toggleControlVisibility(camera.id)}
                                         />
                                     </OverlayViewF>
                                 );
@@ -818,11 +676,7 @@ export default function CrowdMap({
                     </div>
                 )}
                 
-                {selectedCameraPositions.length > 0 && (
-                    <div className="text-xs text-gray-400 pt-2 border-t border-gray-600">
-                        🎯 <strong>FOV Controls:</strong> Click any FOV triangle to open inline controls
-                    </div>
-                )}
+                {/* FOV inline controls removed */}
             </div>
 
             {/* --- GOOGLE MAP COMPONENT --- */}
@@ -842,8 +696,8 @@ export default function CrowdMap({
                         key={camera.id}
                         position={{ lat: camera.lat, lng: camera.lng }}
                         icon={createCameraIcon(getCrowdLevel(camera.name).color)}
-                        onClick={() => setSelectedCamera(camera)}
-                        onDblClick={() => onFOVTriangleClick(camera.id)}
+                        onClick={() => toggleControlVisibility(camera.id)}
+                        
                     />
                 ))}
 
@@ -882,14 +736,14 @@ export default function CrowdMap({
                         <PolygonF
                             paths={triangle.points}
                             options={{
-                                fillColor: selectedFOVTriangle === triangle.cameraId ? '#FFD700' : FOV_TRIANGLE_COLOR,
-                                fillOpacity: selectedFOVTriangle === triangle.cameraId ? 0.4 : 0.2,
-                                strokeColor: selectedFOVTriangle === triangle.cameraId ? '#FFD700' : FOV_TRIANGLE_BORDER_COLOR,
-                                strokeWeight: selectedFOVTriangle === triangle.cameraId ? 2.5 : 1.5,
-                                strokeOpacity: selectedFOVTriangle === triangle.cameraId ? 0.9 : 0.6,
-                                clickable: true
+                                fillColor: FOV_TRIANGLE_COLOR,
+                                fillOpacity: 0.2,
+                                strokeColor: FOV_TRIANGLE_BORDER_COLOR,
+                                strokeWeight: 1.5,
+                                strokeOpacity: 0.6,
+                                clickable: false
                             }}
-                            onClick={() => onFOVTriangleClick(triangle.cameraId)}
+                            
                         />
                         
                         {/* Direction indicator line */}
@@ -921,7 +775,7 @@ export default function CrowdMap({
                         })()}
                         
                         {/* Inline FOV Controls for each camera in main view */}
-                        {selectedFOVTriangle === triangle.cameraId && (() => {
+                        {visibleControls.has(triangle.cameraId) && (() => {
                             const camera = selectedCameraPositions.find(cam => cam.id === triangle.cameraId);
                             if (!camera) return null;
                             
@@ -936,7 +790,7 @@ export default function CrowdMap({
                                 >
                                     <FOVControls
                                         camera={camera}
-                                        onUpdate={(updates) => {
+                                        onUpdate={(updates: Partial<Camera>) => {
                                             const updatedCameras = selectedCameraPositions.map(cam => 
                                                 cam.id === camera.id 
                                                     ? { ...cam, ...updates }
@@ -944,7 +798,7 @@ export default function CrowdMap({
                                             );
                                             onCameraPositionsUpdate(updatedCameras);
                                         }}
-                                        onClose={() => setSelectedFOVTriangle(null)}
+                                        onClose={() => toggleControlVisibility(camera.id)}
                                     />
                                 </OverlayViewF>
                             );
@@ -959,7 +813,7 @@ export default function CrowdMap({
 // --- FOV CONTROLS COMPONENT ---
 const FOVControls: React.FC<FOVControlsProps> = ({ camera, onUpdate, onClose }) => {
     return (
-        <div className="bg-gray-800/95 backdrop-blur-sm p-3 rounded-lg shadow-lg border border-gray-600 min-w-[200px] max-w-[220px]">
+        <div className="bg-gray-900 p-3 rounded-lg shadow-lg border border-gray-600 min-w-[200px] max-w-[220px] z-50">
             <div className="text-xs font-medium text-white mb-2 text-center">
                 {camera.name} Controls
             </div>
@@ -971,8 +825,8 @@ const FOVControls: React.FC<FOVControlsProps> = ({ camera, onUpdate, onClose }) 
                     <div className="flex items-center gap-2">
                         <input
                             type="range"
-                            min="50"
-                            max="500"
+                            min={MIN_FOV_RADIUS}
+                            max={MAX_FOV_RADIUS}
                             value={camera.fovRadius}
                             className="flex-1 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer"
                             onChange={(e) => {

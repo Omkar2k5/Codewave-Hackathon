@@ -5,6 +5,12 @@ import { motion } from "framer-motion"
 import { Home, Route, Brain, Camera, Activity } from "lucide-react"
 import Link from "next/link"
 import CrowdMap from "@/components/features/crowd-monitoring/CrowdMap"
+import {
+  loadCamerasFromStorage,
+  saveCamerasToStorage,
+  loadCoverageFromStorage,
+  saveCoverageToStorage,
+} from "@/lib/cameraStorage"
 
 // --- TYPES ---
 interface Camera {
@@ -13,7 +19,6 @@ interface Camera {
     lat: number;
     lng: number;
     status: string;
-    fov: number; // Field of view in degrees
     direction: number; // Direction in degrees (0-360)
     fovRadius: number; // FOV triangle radius in meters
 }
@@ -37,6 +42,18 @@ export default function DashboardPage() {
     return () => clearTimeout(timer)
   }, [])
 
+  // Load persisted camera config & coverage on mount
+  useEffect(() => {
+    const stored = loadCamerasFromStorage()
+    if (stored && stored.length > 0) {
+      setSelectedCameraPositions(stored as Camera[])
+    }
+    const storedCoverage = loadCoverageFromStorage()
+    if (storedCoverage) {
+      setCameraCoverageCircle(storedCoverage)
+    }
+  }, [])
+
   const mapViews = ["Heatmap View", "Escape Routes"]
 
   const openCameraPlacementMode = () => {
@@ -49,10 +66,13 @@ export default function DashboardPage() {
 
   const handleCameraPositionsUpdate = (cameras: Camera[]) => {
     setSelectedCameraPositions(cameras)
+    // Persist only camera static config
+    saveCamerasToStorage(cameras)
   }
 
   const handleCameraCoverageUpdate = (coverage: CameraCoverageCircle | null) => {
     setCameraCoverageCircle(coverage)
+    saveCoverageToStorage(coverage)
   }
 
   return (
