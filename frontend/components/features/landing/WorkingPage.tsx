@@ -250,12 +250,14 @@ export default function WorkingPage() {
             <h2 className="text-xl md:text-2xl font-bold text-center mb-4 md:mb-6 text-blue-400">
               System in Action
             </h2>
-            <div className="relative aspect-video bg-gray-800 rounded-xl overflow-hidden group cursor-pointer">
-              <div className="absolute inset-0 bg-gradient-to-br from-blue-600/20 to-purple-600/20 flex items-center justify-center">
-                <div className="bg-white/10 backdrop-blur-sm rounded-full p-3 md:p-4 group-hover:scale-110 transition-transform duration-300">
-                  <Play className="w-6 h-6 md:w-9 md:h-9 text-white ml-0.5" />
-                </div>
-              </div>
+            <div className="relative aspect-video bg-gray-800 rounded-xl overflow-hidden">
+              <iframe
+                src="https://www.youtube.com/embed/nM_Vc5XnsFA"
+                title="Drishti System Demo"
+                className="w-full h-full rounded-xl"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
             </div>
           </div>
         </motion.div>

@@ -10,6 +10,8 @@ import {
     PolygonF,
     OverlayViewF
 } from '@react-google-maps/api';
+import { AlertCircle, RefreshCw } from 'lucide-react';
+import { useBackendStatus } from '@/hooks/use-backend-status';
 
 // --- TYPES ---
 interface Camera {
@@ -184,6 +186,9 @@ export default function CrowdMap({
         totalPeople: 0,
         activeCameras: 0
     });
+    
+    // Backend connectivity status
+    const { cameraFeed, dataApi, isLoading, isBackendRunning, refresh } = useBackendStatus();
     
     // Camera placement mode state
     const [cameraPlacementMap, setCameraPlacementMap] = useState<google.maps.Map | null>(null);
@@ -656,6 +661,31 @@ export default function CrowdMap({
     // Main Map View
     return (
         <div className="relative w-full h-full">
+            {/* Backend Error Overlay */}
+            {!isBackendRunning && (
+                <div className="absolute inset-0 z-50 bg-gray-900/80 backdrop-blur-sm flex items-center justify-center">
+                    <div className="bg-gray-800/95 backdrop-blur-sm p-6 rounded-xl border border-red-500/30 text-center max-w-md">
+                        <AlertCircle size={48} className="text-red-400 mx-auto mb-4" />
+                        <h3 className="text-xl font-semibold text-red-400 mb-2">Backend not running</h3>
+                        <p className="text-gray-300 mb-4">
+                            Ensure the backend is working and refresh the page
+                        </p>
+                        <div className="text-sm text-gray-400 mb-4">
+                            Camera Feed (Port 999): <span className={cameraFeed ? 'text-green-400' : 'text-red-400'}>{cameraFeed ? 'Connected' : 'Disconnected'}</span><br/>
+                            Data API (Port 666): <span className={dataApi ? 'text-green-400' : 'text-red-400'}>{dataApi ? 'Connected' : 'Disconnected'}</span>
+                        </div>
+                        <button
+                            onClick={refresh}
+                            disabled={isLoading}
+                            className="flex items-center gap-2 mx-auto px-4 py-2 bg-red-500/20 text-red-400 rounded border border-red-500/30 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                        >
+                            <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
+                            {isLoading ? 'Checking...' : 'Retry Connection'}
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* --- UI OVERLAYS --- */}
             <div className="absolute top-3 left-3 z-10 bg-gray-800/95 backdrop-blur-sm p-4 rounded-lg shadow-lg max-w-xs border border-gray-600">
                 <h3 className="text-lg font-semibold text-white mb-2">
@@ -669,6 +699,14 @@ export default function CrowdMap({
                     )}
                 </div>
                 <div className="text-sm text-gray-300 mb-3">📹 Active Cameras: <strong className="text-white">{selectedCameraPositions.length}</strong></div>
+                
+                {/* Backend Status Indicator */}
+                <div className="text-xs text-gray-400 mb-2 flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${isBackendRunning ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                    Backend: <span className={isBackendRunning ? 'text-green-400' : 'text-red-400'}>
+                        {isBackendRunning ? 'Connected' : 'Disconnected'}
+                    </span>
+                </div>
                 
                 {mapType === 'escape-routes' && (
                     <div className="text-xs text-gray-400 pt-2 border-t border-gray-600">

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
-import { Home, Route, Brain, Camera, Activity } from "lucide-react"
+import { Home, Route, Brain, Camera, Activity, AlertCircle, RefreshCw } from "lucide-react"
 import Link from "next/link"
 import CrowdMap from "@/components/features/crowd-monitoring/CrowdMap"
 import {
@@ -11,6 +11,7 @@ import {
   loadCoverageFromStorage,
   saveCoverageToStorage,
 } from "@/lib/cameraStorage"
+import { useBackendStatus } from "@/hooks/use-backend-status"
 
 // --- TYPES ---
 interface Camera {
@@ -36,6 +37,9 @@ export default function DashboardPage() {
   // Shared camera state between both map views
   const [selectedCameraPositions, setSelectedCameraPositions] = useState<Camera[]>([])
   const [cameraCoverageCircle, setCameraCoverageCircle] = useState<CameraCoverageCircle | null>(null)
+  
+  // Backend connectivity status
+  const { cameraFeed, dataApi, isLoading, isBackendRunning, refresh } = useBackendStatus()
 
   useEffect(() => {
     const timer = setTimeout(() => setIsLoaded(true), 500)
@@ -157,8 +161,10 @@ export default function DashboardPage() {
               </div>
               {/* Status Indicator */}
               <div className="absolute top-3 right-3 flex items-center space-x-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span className="text-xs text-green-400 bg-black/50 px-2 py-1 rounded">LIVE</span>
+                <div className={`w-2 h-2 rounded-full ${isBackendRunning ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                <span className={`text-xs bg-black/50 px-2 py-1 rounded ${isBackendRunning ? 'text-green-400' : 'text-red-400'}`}>
+                  {isBackendRunning ? 'LIVE' : 'OFFLINE'}
+                </span>
               </div>
             </div>
             {/* Feed Info */}
@@ -185,8 +191,10 @@ export default function DashboardPage() {
               </div>
               {/* Status Indicator */}
               <div className="absolute top-3 right-3 flex items-center space-x-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span className="text-xs text-green-400 bg-black/50 px-2 py-1 rounded">LIVE</span>
+                <div className={`w-2 h-2 rounded-full ${isBackendRunning ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                <span className={`text-xs bg-black/50 px-2 py-1 rounded ${isBackendRunning ? 'text-green-400' : 'text-red-400'}`}>
+                  {isBackendRunning ? 'LIVE' : 'OFFLINE'}
+                </span>
               </div>
             </div>
             {/* Feed Info */}
